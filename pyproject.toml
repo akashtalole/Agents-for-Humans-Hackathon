@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bidwright"
+name = "agents-for-humans-hackathon"
 version = "0.1.0"
-description = "BidWright: an AI agent that drafts compliant RFP proposals end-to-end for small contractors and business owners."
+description = "Two Strands Agents SDK submissions: BidWright (RFP compliance & proposal drafting) and ClaimClarity (insurance denial & appeal copilot)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -26,6 +26,10 @@ dev = ["pytest>=8.0.0"]
 
 [project.scripts]
 bidwright = "bidwright.cli:main"
+claimclarity = "claimclarity.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["bidwright*"]
+include = ["bidwright*", "claimclarity*"]
+
+[tool.setuptools.package-data]
+claimclarity = ["data/*.json"]
