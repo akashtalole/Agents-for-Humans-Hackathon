@@ -1,0 +1,79 @@
+{
+  "company_name": "GreenPath Grounds Services LLC",
+  "years_in_business": 7,
+  "business_license": {
+    "type": "State Landscape Contractor's License",
+    "number": "LC-48291",
+    "status": "active",
+    "expires": "2027-11-30"
+  },
+  "certifications": [
+    "State Pesticide Applicator Certification (Commercial, Category 3 - Ornamental & Turf), active, expires 2027-06-15"
+  ],
+  "insurance": [
+    {
+      "type": "Commercial General Liability",
+      "per_occurrence": 1000000,
+      "aggregate": 2000000,
+      "carrier": "Midstate Mutual Insurance",
+      "additional_insured_endorsement_available": true
+    },
+    {
+      "type": "Automobile Liability",
+      "combined_single_limit": 1000000,
+      "carrier": "Midstate Mutual Insurance"
+    },
+    {
+      "type": "Workers' Compensation",
+      "meets_state_statutory_minimums": true,
+      "carrier": "State Fund"
+    }
+  ],
+  "debarment_status": "not debarred from any local, state, or federal contracts",
+  "staff": {
+    "total_employees": 14,
+    "field_crew": 11,
+    "crew_leads_with_5plus_years_experience": 3,
+    "isa_certified_arborist_on_staff": false,
+    "notes": "One crew lead is currently enrolled in the ISA Certified Arborist exam prep course, expected completion Q1 2027."
+  },
+  "equipment": [
+    "6 commercial zero-turn mowers",
+    "2 irrigation service trucks",
+    "1 bucket truck for tree work up to 30 ft",
+    "GPS-tracked service vehicles for route verification"
+  ],
+  "sustainability_practices": [
+    "Integrated Pest Management (IPM) program used on all municipal contracts since 2022",
+    "Drought-tolerant native plant palette maintained for xeriscape sections",
+    "Smart irrigation controllers with weather-based scheduling on all managed sites",
+    "Organic fertilization option available at client request"
+  ],
+  "past_performance_references": [
+    {
+      "client": "City of Millbrook Parks Department",
+      "contract": "Municipal park grounds maintenance, 42 acres",
+      "contract_value_per_year": 186000,
+      "years": "2021-2026",
+      "contact_name": "Denise Ruiz, Parks Superintendent",
+      "contact_phone": "555-201-4477"
+    },
+    {
+      "client": "Oakview School District",
+      "contract": "Grounds and athletic field maintenance, 9 campuses",
+      "contract_value_per_year": 240000,
+      "years": "2020-present",
+      "contact_name": "Marcus Webb, Facilities Director",
+      "contact_phone": "555-201-9012"
+    },
+    {
+      "client": "Rivertown Business Improvement District",
+      "contract": "Downtown streetscape and planter maintenance",
+      "contract_value_per_year": 64000,
+      "years": "2023-present",
+      "contact_name": "Priya Anand, BID Executive Director",
+      "contact_phone": "555-201-3390"
+    }
+  ],
+  "typical_pricing_notes": "Municipal grounds maintenance contracts of similar scope have historically priced between $2,100 and $2,600 per acre per year depending on service frequency and irrigation complexity; final pricing for this bid still needs to be prepared by ownership."
+}
