@@ -193,8 +193,17 @@ pytest
 ```
 
 All unit tests run offline — including against the bundled ICD-10 reference
-data directly, no API key required. A live end-to-end test against a real
-model is included but skipped by default; opt in with:
+data directly and orchestrator **wiring tests**
+(`tests/test_claimclarity_orchestrator_wiring.py`), which use Strands'
+documented `agent.tool.<name>(...)` direct-call interface to drive every
+pipeline stage with the sub-agents mocked, and assert the real `ClaimCase`
+state transitions, file writes, and error paths are correct — no API key
+required for any of it. What this does *not* cover is the orchestrator LLM's
+own judgment in choosing tool order, or the quality of what a real model
+extracts/classifies/drafts (including whether it actually calls
+`lookup_icd10_code` before concluding anything, as instructed) — that needs
+an actual model call. A live end-to-end test against a real model is
+included but skipped by default; opt in with:
 
 ```bash
 CLAIMCLARITY_RUN_INTEGRATION=1 pytest tests/test_claimclarity_pipeline_integration.py
@@ -221,3 +230,14 @@ stretch goal, not a requirement — everything above runs standalone.
   stakes or complex denials, a licensed patient advocate or attorney should
   review before you rely on this. ClaimClarity is built to make that review
   fast and well-informed, not to replace it.
+- **What's actually been verified, precisely:** the tool functions (including
+  ICD-10 lookups against the bundled data), Pydantic schemas, Markdown
+  rendering, and the orchestrator's tool-call plumbing are covered by 30+
+  offline tests and have run clean. The full pipeline's behavior *with a real
+  model in the loop* — whether the investigator agent reliably calls
+  `lookup_icd10_code` before judging a code, classification quality, appeal
+  letter quality — has been spot-checked but depends on model access this
+  development environment didn't have reliably; run
+  `CLAIMCLARITY_RUN_INTEGRATION=1 pytest tests/test_claimclarity_pipeline_integration.py`
+  yourself with a working `ANTHROPIC_API_KEY` or Bedrock access before
+  treating a specific model/prompt combination as demo-proven.

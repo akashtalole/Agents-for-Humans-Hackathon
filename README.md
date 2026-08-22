@@ -22,7 +22,7 @@ independently tested, and documented in full in its own file linked above.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[ui,dev]"
 cp .env.example .env   # fill in ANTHROPIC_API_KEY, or configure AWS credentials for Bedrock
-pytest                 # 37 offline unit tests, no API key required
+pytest                 # 67 offline tests, no API key required
 ```
 
 Then jump into [BIDWRIGHT.md](BIDWRIGHT.md) or [CLAIMCLARITY.md](CLAIMCLARITY.md)

@@ -165,9 +165,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-All unit tests run offline against the tool functions, Pydantic models, and
-Markdown rendering — no API key required. A live end-to-end test against a
-real model is included but skipped by default; opt in with:
+All unit tests run offline — no API key required. That includes orchestrator
+**wiring tests** (`tests/test_bidwright_orchestrator_wiring.py`), which use
+Strands' documented `agent.tool.<name>(...)` direct-call interface to drive
+every pipeline stage with the sub-agents mocked, and assert the real
+`BidJob` state transitions, file writes, and error paths are correct. What
+this does *not* cover is the orchestrator LLM's own judgment in choosing
+tool order, or the quality of what a real model extracts/decides/drafts —
+that needs an actual model call. A live end-to-end test against a real model
+is included but skipped by default; opt in with:
 
 ```bash
 BIDWRIGHT_RUN_INTEGRATION=1 pytest tests/test_pipeline_integration.py
@@ -190,3 +196,13 @@ stretch goal, not a requirement — everything above runs standalone.
 - This is not legal advice. For contracts with real regulatory teeth, have
   counsel review before submission — BidWright is built to make that review
   fast, not to replace it.
+- **What's actually been verified, precisely:** the tool functions, Pydantic
+  schemas, Markdown rendering, and the orchestrator's tool-call plumbing are
+  covered by 30+ offline tests and have run clean. The full pipeline's
+  behavior *with a real model in the loop* — extraction accuracy, compliance
+  judgment quality, whether the orchestrator calls tools in the intended
+  order on its own — has been spot-checked but depends on model access this
+  development environment didn't have reliably; run
+  `BIDWRIGHT_RUN_INTEGRATION=1 pytest tests/test_pipeline_integration.py`
+  yourself with a working `ANTHROPIC_API_KEY` or Bedrock access before
+  treating a specific model/prompt combination as demo-proven.
