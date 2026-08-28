@@ -40,7 +40,13 @@ def get_model():
         return AnthropicModel(
             client_args={"api_key": os.environ["ANTHROPIC_API_KEY"]},
             model_id=model_id,
-            max_tokens=4096,
+            # Low limits are dangerous here, not just limiting: a response cut off
+            # mid-tool-call streams an empty/truncated tool input, which Strands
+            # silently defaults to `{}` and retries - and if the model hits the
+            # same ceiling on every retry, that becomes an infinite loop that
+            # eventually dies with a 400 from the API. Seen in practice at 4096
+            # on this orchestrator's more verbose turns.
+            max_tokens=8192,
         )
 
     if use_bedrock:
