@@ -10,11 +10,15 @@ Local test:
     python agentcore_app_claimclarity.py
     # then POST {"document_paths": ["examples/claimclarity/denial_notice.md", ...]}
     # to the local endpoint
+    # - or, the shape a real remote caller (with no filesystem access to this
+    # container) would actually use -
+    #            {"document_texts": ["<denial notice text>", "<plan SOB text>", ...]}
 """
 from __future__ import annotations
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
+from claimclarity.payload import resolve_document_paths
 from claimclarity.pipeline import run_claim_case
 
 app = BedrockAgentCoreApp()
@@ -22,8 +26,8 @@ app = BedrockAgentCoreApp()
 
 @app.entrypoint
 def invoke(payload: dict) -> dict:
-    document_paths = payload["document_paths"]
     output_dir = payload.get("output_dir", "/tmp/claimclarity_output")
+    document_paths = resolve_document_paths(payload, "/tmp/claimclarity_input")
 
     result = run_claim_case(documents_paths=document_paths, output_dir=output_dir)
 

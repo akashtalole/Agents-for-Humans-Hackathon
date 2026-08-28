@@ -22,12 +22,15 @@ independently tested, and documented in full in its own file linked above.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[ui,dev]"
 cp .env.example .env   # fill in ANTHROPIC_API_KEY, or configure AWS credentials for Bedrock
-pytest                 # 67 offline tests, no API key required
+pytest                 # 75 offline tests, no API key required
 ```
 
 Then jump into [BIDWRIGHT.md](BIDWRIGHT.md) or [CLAIMCLARITY.md](CLAIMCLARITY.md)
 for that project's specific CLI/Streamlit commands, architecture diagram, and
 example data.
+
+Want both running on real AWS infrastructure instead of locally? See
+[Deploying to AWS](#deploying-to-aws) below.
 
 ## Repository layout
 
@@ -40,5 +43,18 @@ agentcore_app.py               BidWright AgentCore entrypoint (optional)
 agentcore_app_claimclarity.py  ClaimClarity AgentCore entrypoint (optional)
 examples/              Sample input data for both projects
 tests/                 Unit tests for both projects (test_*.py / test_claimclarity_*.py)
-deploy/                 Dockerfiles + AgentCore deployment notes for both
+deploy/                 Dockerfiles, AgentCore deployment notes, and automated
+                        CloudShell setup/teardown scripts for both
 ```
+
+## Deploying to AWS
+
+[`deploy/cloudshell/`](deploy/cloudshell/) has one-shot scripts
+(`setup.sh` / `invoke_samples.sh` / `teardown.sh`) that deploy both agents to
+Amazon Bedrock AgentCore Runtime, meant to run straight from
+[AWS CloudShell](https://aws.amazon.com/cloudshell/) with no local install or
+Docker required. This creates real, billable AWS resources — read
+[`deploy/cloudshell/README.md`](deploy/cloudshell/README.md) for the cost
+warning and prerequisites before running `setup.sh`, and remember to run
+`teardown.sh` when you're done. This is optional and stretch-goal territory —
+both projects run entirely locally without it.

@@ -8,6 +8,9 @@ Local test:
     python agentcore_app.py
     # then POST {"rfp_path": "examples/sample_rfp.md",
     #            "profile_path": "examples/company_profile.json"} to the local endpoint
+    # - or, the shape a real remote caller (with no filesystem access to this
+    # container) would actually use -
+    #            {"rfp_text": "...", "profile_text": "..."}
 
 Note: this file requires the optional `bedrock-agentcore` package
 (`pip install .[agentcore]`) and AWS credentials with Bedrock access, neither
@@ -18,6 +21,7 @@ from __future__ import annotations
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
+from bidwright.payload import resolve_input_paths
 from bidwright.pipeline import run_bid_job
 
 app = BedrockAgentCoreApp()
@@ -25,9 +29,8 @@ app = BedrockAgentCoreApp()
 
 @app.entrypoint
 def invoke(payload: dict) -> dict:
-    rfp_path = payload["rfp_path"]
-    profile_path = payload["profile_path"]
     output_dir = payload.get("output_dir", "/tmp/bidwright_output")
+    rfp_path, profile_path = resolve_input_paths(payload, "/tmp/bidwright_input")
 
     result = run_bid_job(rfp_path=rfp_path, profile_path=profile_path, output_dir=output_dir)
 
