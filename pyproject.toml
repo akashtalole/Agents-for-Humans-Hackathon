@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agents-for-humans-hackathon"
+version = "0.1.0"
+description = "Two Strands Agents SDK submissions: BidWright (RFP compliance & proposal drafting) and ClaimClarity (insurance denial & appeal copilot)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "strands-agents[anthropic]>=1.50.0",
+    "strands-agents-tools>=0.2.0",
+    "pydantic>=2.4.0",
+    "python-dotenv>=1.0.0",
+    "pypdf>=4.0.0",
+    "python-docx>=1.1.0",
+    "python-dateutil>=2.9.0",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.38.0"]
+agentcore = ["bedrock-agentcore>=0.1.0"]
+dev = ["pytest>=8.0.0"]
+
+[project.scripts]
+bidwright = "bidwright.cli:main"
+claimclarity = "claimclarity.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bidwright*", "claimclarity*"]
+
+[tool.setuptools.package-data]
+claimclarity = ["data/*.json"]

@@ -1,0 +1,14 @@
+# Runtime dependencies for agentcore_app.py / agentcore_app_claimclarity.py,
+# used by `agentcore configure --requirements-file` when building the
+# deployment package. Kept separate from pyproject.toml's dependency list
+# only because the AgentCore CLI expects a plain requirements.txt-style file
+# rather than resolving pyproject.toml itself - the versions below must be
+# kept in sync with pyproject.toml's [project.dependencies].
+strands-agents[anthropic]>=1.50.0
+strands-agents-tools>=0.2.0
+pydantic>=2.4.0
+python-dotenv>=1.0.0
+pypdf>=4.0.0
+python-docx>=1.1.0
+python-dateutil>=2.9.0
+bedrock-agentcore>=0.1.0

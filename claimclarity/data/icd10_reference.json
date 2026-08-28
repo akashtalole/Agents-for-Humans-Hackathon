@@ -1,0 +1,25 @@
+{
+  "_source_note": "A curated subset of real ICD-10-CM codes (FY2026 code set), verified against an authoritative ICD-10 lookup service during development. Not the full ~70,000-code set - see claimclarity/tools/icd10.py for how to swap in a live ICD-10 API/MCP source for production use.",
+  "codes": [
+    {"code": "M54", "short_description": "Dorsalgia", "billable": false, "note": "Category header only - not valid for billing/HIPAA transactions."},
+    {"code": "M54.5", "short_description": "Low back pain", "billable": false, "note": "Category header only, retired as a billable code in FY2022 in favor of more specific M54.5x codes - not valid for billing/HIPAA transactions."},
+    {"code": "M54.50", "short_description": "Low back pain, unspecified", "billable": true, "first_fy": 2022},
+    {"code": "M54.51", "short_description": "Vertebrogenic low back pain", "billable": true, "first_fy": 2022},
+    {"code": "M54.59", "short_description": "Other low back pain", "billable": true, "first_fy": 2022},
+
+    {"code": "E11", "short_description": "Type 2 diabetes mellitus", "billable": false, "note": "Category header only - not valid for billing/HIPAA transactions."},
+    {"code": "E11.65", "short_description": "Type 2 diabetes mellitus with hyperglycemia", "billable": true, "first_fy": 2020},
+    {"code": "E11.9", "short_description": "Type 2 diabetes mellitus without complications", "billable": true, "first_fy": 2020},
+
+    {"code": "S93", "short_description": "Dislocation & sprain of joints & ligaments at ankle, foot and toe level", "billable": false, "note": "Category header only - not valid for billing/HIPAA transactions."},
+    {"code": "S93.401A", "short_description": "Sprain of unspecified ligament of right ankle, initial encounter", "billable": true, "first_fy": 2020},
+    {"code": "S93.491A", "short_description": "Sprain of other ligament of right ankle, initial encounter", "billable": true, "first_fy": 2020},
+
+    {"code": "F41", "short_description": "Other anxiety disorders", "billable": false, "note": "Category header only - not valid for billing/HIPAA transactions."},
+    {"code": "F41.1", "short_description": "Generalized anxiety disorder", "billable": true, "first_fy": 2020},
+    {"code": "F41.9", "short_description": "Anxiety disorder, unspecified", "billable": true, "first_fy": 2020},
+
+    {"code": "G43", "short_description": "Migraine", "billable": false, "note": "Category header only - not valid for billing/HIPAA transactions."},
+    {"code": "G43.909", "short_description": "Migraine, unspecified, not intractable, without status migrainosus", "billable": true, "first_fy": 2020}
+  ]
+}

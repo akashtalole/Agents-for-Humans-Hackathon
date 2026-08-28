@@ -1,0 +1,167 @@
+"""Wiring tests for ClaimClarity's orchestrator - same discipline as
+tests/test_bidwright_orchestrator_wiring.py: use `agent.tool.<name>(...)`
+(Strands' documented direct tool-call interface) to exercise the real
+tool-call plumbing without hitting a live model. See that file's docstring
+for what this does and doesn't prove.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import claimclarity.orchestrator as orchestrator_module
+from claimclarity.models import (
+    AppealPackage,
+    Classification,
+    ClaimLineItem,
+    ClaimRecord,
+    DenialFindings,
+    LineItemFinding,
+)
+from claimclarity.orchestrator import ClaimCase, build_orchestrator
+
+DOCUMENT_PATHS = [
+    "examples/claimclarity/denial_notice.md",
+    "examples/claimclarity/plan_summary_of_benefits.md",
+    "examples/claimclarity/medical_record_excerpt.md",
+]
+
+
+def _tool_text(result) -> str:
+    return result["content"][0]["text"]
+
+
+def _fake_claim() -> ClaimRecord:
+    return ClaimRecord(
+        patient_name="Maria Chen",
+        insurer_name="Heartland Mutual Health Plan",
+        claim_number="CLM-2026-0619884",
+        appeal_deadline="2026-12-28",
+        appeal_submission_method="member.heartlandmutual.example/appeals",
+        line_items=[
+            ClaimLineItem(procedure_code="97110", diagnosis_code_billed="M54.5", carc_code="CO-16"),
+            ClaimLineItem(procedure_code="97124", diagnosis_code_billed="M54.5", carc_code="CO-96"),
+        ],
+    )
+
+
+def _fake_mixed_findings() -> DenialFindings:
+    return DenialFindings(
+        overall_recommendation="Appeal line 97110, skip 97124.",
+        findings=[
+            LineItemFinding(
+                procedure_code="97110",
+                classification=Classification.BILLING_ERROR,
+                evidence="M54.5 is a non-billable category header per lookup_icd10_code.",
+                corrected_diagnosis_code="M54.51",
+                recommendation="Appeal with corrected code M54.51.",
+                worth_appealing=True,
+            ),
+            LineItemFinding(
+                procedure_code="97124",
+                classification=Classification.VALID_DENIAL,
+                evidence="Plan explicitly excludes massage therapy regardless of necessity.",
+                recommendation="Do not appeal - genuine plan exclusion.",
+                worth_appealing=False,
+            ),
+        ],
+    )
+
+
+def _fake_appeal() -> AppealPackage:
+    return AppealPackage(
+        appeal_letter="Dear Heartland Mutual Appeals Department, ...",
+        non_appeal_explanation="Massage therapy is excluded under your plan regardless of documentation.",
+        open_questions=["Confirm you still want to appeal given the 97124 exclusion."],
+    )
+
+
+def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+    monkeypatch.setattr(orchestrator_module, "draft_appeal", lambda claim, findings: _fake_appeal())
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+
+    assert "Loaded 3 document(s)" in _tool_text(orchestrator.tool.load_claim_documents())
+    assert "CLM-2026-0619884" in _tool_text(orchestrator.tool.extract_claim_details())
+    assert "saved" in _tool_text(orchestrator.tool.create_appeal_deadline_reminder_tool()).lower()
+    assert "1 of 2" in _tool_text(orchestrator.tool.investigate_denial_tool())
+    assert "appeal_package.md" in _tool_text(orchestrator.tool.draft_appeal_package())
+
+    for filename in (
+        "claim_summary.md",
+        "denial_findings.md",
+        "decisions_needed.md",
+        "appeal_package.md",
+        "appeal_deadline.ics",
+    ):
+        assert (tmp_path / filename).exists(), f"{filename} was not written"
+
+    assert case.claim.claim_number == "CLM-2026-0619884"
+    assert len(case.findings.findings) == 2
+    assert case.appeal.appeal_letter.startswith("Dear Heartland Mutual")
+
+    decisions = (tmp_path / "decisions_needed.md").read_text()
+    assert "1 item(s) look worth appealing" in decisions
+    assert "Do not appeal - genuine plan exclusion." in decisions
+
+
+def test_extract_before_load_returns_error_not_exception(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.extract_claim_details()
+    assert result["status"] == "success"
+    assert "Error" in _tool_text(result)
+    assert "load_claim_documents" in _tool_text(result)
+
+
+def test_deadline_reminder_before_extract_returns_error(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.create_appeal_deadline_reminder_tool()
+    assert "Error" in _tool_text(result)
+
+
+def test_investigate_before_extract_returns_error(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.investigate_denial_tool()
+    assert "Error" in _tool_text(result)
+
+
+def test_draft_appeal_before_investigate_returns_error(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    result = orchestrator.tool.draft_appeal_package()
+    assert "Error" in _tool_text(result)
+
+
+def test_decisions_needed_when_nothing_worth_appealing(tmp_path: Path, monkeypatch):
+    all_denied = DenialFindings(
+        overall_recommendation="Neither item is worth appealing.",
+        findings=[
+            LineItemFinding(
+                procedure_code="97124",
+                classification=Classification.VALID_DENIAL,
+                evidence="Plan exclusion.",
+                recommendation="Do not appeal.",
+                worth_appealing=False,
+            )
+        ],
+    )
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: all_denied)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+
+    decisions = (tmp_path / "decisions_needed.md").read_text()
+    assert "nothing here looks worth appealing" in decisions.lower()
