@@ -165,3 +165,26 @@ def test_decisions_needed_when_nothing_worth_appealing(tmp_path: Path, monkeypat
 
     decisions = (tmp_path / "decisions_needed.md").read_text()
     assert "nothing here looks worth appealing" in decisions.lower()
+
+
+def test_explicit_none_callback_handler_is_actually_silent(tmp_path: Path):
+    """Regression test: Strands' Agent treats an *omitted* callback_handler as
+    "use my verbose default printer" but an *explicit* None as "stay silent"
+    (null_callback_handler). build_orchestrator must forward None as None, not
+    drop the kwarg - otherwise --quiet silently does nothing."""
+    from strands.handlers.callback_handler import null_callback_handler
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    quiet_orchestrator = build_orchestrator(case, callback_handler=None)
+    assert quiet_orchestrator.callback_handler is null_callback_handler
+
+
+def test_custom_callback_handler_is_used(tmp_path: Path):
+    events = []
+
+    def handler(**kwargs):
+        events.append(kwargs)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case, callback_handler=handler)
+    assert orchestrator.callback_handler is handler
