@@ -159,3 +159,26 @@ def test_deadline_reminder_before_extract_returns_error(tmp_path: Path):
     orchestrator = build_orchestrator(job)
     result = orchestrator.tool.create_submission_deadline_reminder()
     assert "Error" in _tool_text(result)
+
+
+def test_explicit_none_callback_handler_is_actually_silent(tmp_path: Path):
+    """Regression test: Strands' Agent treats an *omitted* callback_handler as
+    "use my verbose default printer" but an *explicit* None as "stay silent"
+    (null_callback_handler). build_orchestrator must forward None as None, not
+    drop the kwarg - otherwise --quiet silently does nothing."""
+    from strands.handlers.callback_handler import null_callback_handler
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    quiet_orchestrator = build_orchestrator(job, callback_handler=None)
+    assert quiet_orchestrator.callback_handler is null_callback_handler
+
+
+def test_custom_callback_handler_is_used(tmp_path: Path):
+    events = []
+
+    def handler(**kwargs):
+        events.append(kwargs)
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job, callback_handler=handler)
+    assert orchestrator.callback_handler is handler
