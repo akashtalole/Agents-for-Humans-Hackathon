@@ -105,7 +105,9 @@ if result is not None:
     else:
         st.success("✅ No blocking gaps found — this bid is ready for final human review.")
 
-    tabs = st.tabs(["Decisions Needed", "Requirements", "Compliance Report", "Proposal Draft", "Agent Summary"])
+    tabs = st.tabs(
+        ["Decisions Needed", "Requirements", "Compliance Report", "Proposal Draft", "Agent's Own Summary (unverified)"]
+    )
     output_dir: Path = st.session_state.output_dir
 
     def _read(name: str) -> str:
@@ -135,6 +137,12 @@ if result is not None:
         st.markdown(content)
         st.download_button("Download proposal_draft.md", content, file_name="proposal_draft.md")
     with tabs[4]:
+        st.caption(
+            "This is the orchestrator's own free-text reply, shown for transparency. "
+            "It can occasionally misstate specifics even when every generated file above "
+            "is correct - treat **Decisions Needed** and the generated files as the source "
+            "of truth, not this tab."
+        )
         st.markdown(result.summary_text)
 else:
     st.info("Configure an RFP and company profile in the sidebar, then click **Run BidWright**.")

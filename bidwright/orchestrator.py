@@ -47,11 +47,16 @@ For every job, always run the full pipeline in this order:
 5. draft_proposal_document
 
 Then write a final answer for a busy small business owner who has 30 seconds. \
-It must include, in this order:
-- One-line bottom line: are we ready to submit, or are there blocking gaps?
+Your tool results only give you counts and filenames, not the actual gap \
+text - so do NOT try to recall or restate specific gap details, dollar \
+amounts, or requirement names from memory. You do not reliably have them, \
+and guessing produces confident-sounding fabrications. Instead, your final \
+answer must include, in this order:
+- One-line bottom line: are we ready to submit, or are there blocking gaps \
+(state the count only, e.g. "3 blocking gaps").
 - The submission deadline.
-- Each blocking gap, in plain language, with the concrete action needed to \
-close it.
+- A direct pointer to decisions_needed.md as the place to read the specific \
+blocking gaps and recommended actions - do not enumerate them yourself.
 - Where to find the full requirements, compliance report, and proposal draft \
 files.
 
