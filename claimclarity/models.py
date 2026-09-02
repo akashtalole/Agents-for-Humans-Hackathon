@@ -110,6 +110,53 @@ class StateDOIInfo(BaseModel):
     )
 
 
+class EvidenceRequestItem(BaseModel):
+    """One denied line item where physician-supplied clinical documentation
+    could plausibly change the outcome - never generated for a line item
+    whose denial is a pure billing-code error or a plan-eligibility
+    exclusion, since physician evidence can't fix either of those."""
+
+    procedure_code: str
+    evidence_needed: str = Field(
+        description="The specific clinical documentation this denial's medical necessity criteria would need - "
+        "concrete, e.g. 'documented failure of at least 6 weeks of physical therapy prior to imaging', never vague "
+        "filler like 'more documentation'"
+    )
+    why_insurer_requires_it: str = Field(
+        description="Why the insurer likely requires this - tied to the plan's own stated medical necessity "
+        "criteria if present in relevant_plan_terms, otherwise general standard-of-care reasoning clearly labeled "
+        "as such rather than presented as this plan's own language"
+    )
+    physician_office_justification: str = Field(
+        description="A short justification a physician's office can read and act on quickly - what to pull from "
+        "the chart and why it supports medical necessity for this diagnosis/procedure"
+    )
+
+
+class PhysicianEvidenceRequest(BaseModel):
+    """What to ask the treating physician's office for before the appeal is
+    filed, so the appeal can cite the specific documentation the insurer's
+    own medical necessity criteria actually require - not generic notes. See
+    agents/evidence_request_builder.py's system prompt for the evidence
+    discipline this model is meant to enforce."""
+
+    items: list[EvidenceRequestItem] = Field(default_factory=list)
+    cover_letter_to_physician: str = Field(
+        default="",
+        description="Ready-to-send draft the patient can hand to their doctor's office, listing exactly what's "
+        "being requested and why. Empty if no line items qualified.",
+    )
+    patient_followup_checklist: list[str] = Field(
+        default_factory=list,
+        description="What the patient should personally track/confirm, e.g. confirm the office received the "
+        "request, follow up if no response within a stated number of business days",
+    )
+    rationale: str = Field(
+        description="Plain-language explanation for a stressed patient: which items were flagged and why, or - "
+        "honestly - why none were"
+    )
+
+
 class EscalationPackage(BaseModel):
     """What to do after the internal appeal: independent External Review, and,
     only where the findings actually support it, a state DOI complaint about

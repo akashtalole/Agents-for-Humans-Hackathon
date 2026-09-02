@@ -8,8 +8,9 @@ from claimclarity.orchestrator import ClaimCase, build_orchestrator
 TASK_PROMPT = (
     "Process this claim denial end to end: load the documents, extract the claim "
     "details, create an appeal deadline reminder, investigate the denial using "
-    "real ICD-10 code checks, draft the appeal package, and prepare the external "
-    "review / regulatory escalation package. Then give me the final summary."
+    "real ICD-10 code checks, build the physician evidence request for anything "
+    "that turns on medical necessity, draft the appeal package, and prepare the "
+    "external review / regulatory escalation package. Then give me the final summary."
 )
 
 

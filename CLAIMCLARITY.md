@@ -47,12 +47,19 @@ and a medical record excerpt), ClaimClarity:
    `billing_error` (mechanically fixable), `documentation_gap` (needs more
    info from the provider), or `valid_denial` (genuinely excluded — not worth
    appealing) — each with cited evidence, never a guess.
-5. **Drafts the appeal** for everything worth appealing, citing the specific
+5. **Builds the physician evidence request**: for any denied line item where
+   the reason is genuinely about medical necessity — not a coding fix, not a
+   flat plan exclusion — ClaimClarity works out the *specific* clinical
+   documentation the insurer's own medical necessity criteria would need,
+   and drafts a ready-to-send request the patient can hand to their doctor's
+   office. See **Physician Letter of Medical Necessity — Evidence Request
+   Builder** below.
+6. **Drafts the appeal** for everything worth appealing, citing the specific
    denial reason, the corrected code where applicable, and the plan term that
    supports coverage — and writes an honest plain-language explanation for
    anything that isn't worth appealing, instead of drafting a doomed letter
    just to be agreeable.
-6. **Prepares the next step almost nobody knows they have**: if the internal
+7. **Prepares the next step almost nobody knows they have**: if the internal
    appeal doesn't fully resolve the denial, most patients have a legal right
    to an independent **External Review** by a third party outside the
    insurer — and, separately, to file a complaint with their state
@@ -62,9 +69,10 @@ and a medical record excerpt), ClaimClarity:
    the investigation actually found a process failure, never reflexively —
    drafts a DOI complaint letter too. See **External Review & Regulatory
    Escalation** below.
-7. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
-   what's worth appealing, what isn't and why, the deadline, and a pointer to
-   the escalation package. Everything else runs unattended.
+8. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
+   what's worth appealing, what isn't and why, the deadline, and pointers to
+   the physician evidence request and the escalation package. Everything
+   else runs unattended.
 
 Try it against the included example: a physical therapy claim billed with a
 diagnosis code that was deprecated for billing purposes in FY2022 (a real,
@@ -88,6 +96,7 @@ flowchart TD
     O -->|tool call| A["extract_claim_details\n→ Claim Analyzer Agent"]
     O -->|tool call| R[create_appeal_deadline_reminder]
     O -->|tool call| I["investigate_denial\n→ Denial Investigator Agent"]
+    O -->|tool call| V["build_physician_evidence_request\n→ Evidence Request Builder Agent"]
     O -->|tool call| P["draft_appeal_package\n→ Appeal Drafter Agent"]
     O -->|tool call| E["prepare_external_review_escalation\n→ Escalation Advisor Agent"]
 
@@ -98,10 +107,12 @@ flowchart TD
 
     A -->|ClaimRecord| J[(Shared ClaimCase state)]
     I -->|DenialFindings| J
+    V -->|PhysicianEvidenceRequest| J
     P -->|AppealPackage| J
     E -->|EscalationPackage| J
     J --> A
     J --> I
+    J --> V
     J --> P
     J --> E
 
@@ -110,6 +121,7 @@ flowchart TD
     J --> F3[decisions_needed.md]
     J --> F4[appeal_package.md]
     J --> F5[appeal_deadline.ics]
+    J --> F8[physician_evidence_request.md]
     J --> F6[escalation_package.md]
     J --> F7[external_review_deadline.ics]
 
@@ -144,6 +156,63 @@ Design choices worth calling out:
   (`claimclarity/data/state_doi_reference.json`) and instructed to draw its
   regulatory basis and deadline window only from that data — see **External
   Review & Regulatory Escalation** below.
+- **The evidence request builder only asks for what a denial actually turns
+  on.** Like the escalation advisor, it judges from the findings whether
+  physician documentation could plausibly change the outcome — a pure
+  billing-code fix or a flat plan exclusion gets nothing, honestly, rather
+  than a padded request — see **Physician Letter of Medical Necessity —
+  Evidence Request Builder** below.
+
+## Physician Letter of Medical Necessity — Evidence Request Builder
+
+**The problem this closes:** "not medically necessary" is the single most
+common, most winnable category of health insurance denial — and appeals on
+this ground fail constantly not because the treatment wasn't justified, but
+because the treating physician's office never submitted the *specific*
+clinical documentation the insurer's own medical necessity criteria actually
+require (the right diagnosis-to-procedure linkage, prior conservative-
+treatment history, specific measurements or scores, and so on). Most winnable
+denials are lost on missing paperwork, not on the underlying medical merits.
+Patients have no way to know what to ask their doctor's office for, and
+doctor's offices are busy and default to sending generic chart notes unless
+asked precisely. ClaimClarity already investigates the denial and drafts the
+appeal *to the insurer* — this closes the gap upstream of that: the specific
+ask *to the physician* for the evidence that appeal actually needs to cite.
+
+ClaimClarity runs this as pipeline step 5, right after the denial
+investigation and before the appeal is drafted:
+
+1. The **Evidence Request Builder** agent
+   (`claimclarity/agents/evidence_request_builder.py`) reads the actual
+   `DenialFindings` and judges, line item by line item, whether the denial is
+   genuinely about medical necessity — never a pure billing-code error
+   (already being fixed with a corrected code) and never a flat plan
+   exclusion (physician evidence can't override an exclusion either way).
+   Only qualifying line items get an entry.
+2. For each one, it names the *specific* documentation needed (e.g.
+   "documented failure of at least 6 weeks of physical therapy prior to
+   imaging" — never vague "more documentation"), explains why the insurer
+   likely requires it (citing the plan's own stated criteria when
+   `relevant_plan_terms` actually contains one, otherwise general
+   standard-of-care reasoning clearly labeled as such rather than presented
+   as the plan's own language), and gives a short justification the
+   physician's office can read and act on in seconds.
+3. It drafts a ready-to-send **cover letter to the physician's office**
+   listing exactly what's being requested, and a **patient follow-up
+   checklist** — what to personally confirm, like whether the office
+   received the request and when to follow up if it hasn't responded.
+4. Everything is written to `physician_evidence_request.md`.
+   `decisions_needed.md` is re-rendered with one line pointing to it.
+5. If nothing in the denial actually turns on physician documentation —
+   every item is a coding fix or a plan exclusion — the result is honestly
+   near-empty rather than padded with a generic request: no items, no cover
+   letter, and a `rationale` explaining why.
+
+This is explicitly **not medical advice** — the system prompt says so, and
+the agent is held to the same evidence discipline as `denial_investigator.py`
+and the escalation advisor: it never invents a diagnosis, test result, or
+treatment history that isn't already in the claim record or findings it was
+given.
 
 ## External Review & Regulatory Escalation
 
@@ -160,7 +229,7 @@ because almost no patient is told it exists. This is frequently the more
 powerful step: an external reviewer has no relationship with the insurer and
 can overturn the denial outright.
 
-ClaimClarity now runs this as pipeline step 6, unconditionally, right after
+ClaimClarity now runs this as pipeline step 7, unconditionally, right after
 the internal appeal is drafted:
 
 1. It looks up the patient's state (extracted from the documents where
@@ -209,8 +278,8 @@ claimclarity run \
 
 This streams each tool call as it happens (including the live ICD-10 lookup
 calls), then prints a summary and writes `claim_summary.md`,
-`denial_findings.md`, `decisions_needed.md`, `appeal_package.md`,
-`appeal_deadline.ics`, `escalation_package.md`, and
+`denial_findings.md`, `decisions_needed.md`, `physician_evidence_request.md`,
+`appeal_package.md`, `appeal_deadline.ics`, `escalation_package.md`, and
 `external_review_deadline.ics` to `output/`.
 
 Or run the Streamlit demo:
@@ -243,6 +312,7 @@ claimclarity/
   agents/
     claim_analyzer.py             Sub-agent: documents -> ClaimRecord
     denial_investigator.py        Sub-agent (tool-using): ClaimRecord -> DenialFindings
+    evidence_request_builder.py   Sub-agent: -> PhysicianEvidenceRequest (physician evidence request)
     appeal_drafter.py             Sub-agent: -> AppealPackage
     escalation_advisor.py         Sub-agent: -> EscalationPackage (external review + DOI complaint)
   orchestrator.py                 Orchestrator Agent (agents-as-tools) + shared ClaimCase state
@@ -314,9 +384,15 @@ stretch goal, not a requirement — everything above runs standalone.
   expand `claimclarity/data/state_doi_reference.json` to full coverage.
 - **What's actually been verified, precisely:** the tool functions (including
   ICD-10 and state DOI lookups against the bundled data), Pydantic schemas,
-  Markdown rendering, and the orchestrator's tool-call plumbing are covered
-  by 55+ offline tests and have run clean. `test_claimclarity_pipeline_integration.py`
-  has also passed against a real model end to end, correctly calling
+  Markdown rendering, and the orchestrator's tool-call plumbing — including
+  the physician evidence request builder's wiring — are covered by 60+
+  offline tests and have run clean. The evidence request builder's own
+  judgment (which findings actually qualify as medical-necessity-related,
+  the quality of a real model's drafted letter) has *not* been checked
+  against a live model — only its offline wiring has, the same limitation
+  the wiring tests below call out for every other step.
+  `test_claimclarity_pipeline_integration.py` has also passed against a real
+  model end to end for the original pipeline, correctly calling
   `lookup_icd10_code` before judging a code and correctly classifying both
   the fixable billing error and the genuine plan exclusion in the bundled
   example. A live run also surfaced a real bug worth knowing about: the

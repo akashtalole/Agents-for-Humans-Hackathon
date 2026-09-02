@@ -17,14 +17,22 @@ from claimclarity.agents.appeal_drafter import draft_appeal
 from claimclarity.agents.claim_analyzer import analyze_claim
 from claimclarity.agents.denial_investigator import investigate_denial
 from claimclarity.agents.escalation_advisor import prepare_escalation
+from claimclarity.agents.evidence_request_builder import build_physician_evidence_request
 from claimclarity.config import create_agent
-from claimclarity.models import AppealPackage, ClaimRecord, DenialFindings, EscalationPackage
+from claimclarity.models import (
+    AppealPackage,
+    ClaimRecord,
+    DenialFindings,
+    EscalationPackage,
+    PhysicianEvidenceRequest,
+)
 from claimclarity.rendering import (
     render_appeal_md,
     render_claim_summary_md,
     render_decision_summary_md,
     render_escalation_md,
     render_findings_md,
+    render_physician_evidence_request_md,
 )
 from claimclarity.tools.calendar import create_appeal_deadline_reminder, create_external_review_deadline_reminder
 from claimclarity.tools.documents import read_document, save_text_file
@@ -40,8 +48,9 @@ For every case, always run the full pipeline in this order:
 2. extract_claim_details
 3. create_appeal_deadline_reminder
 4. investigate_denial
-5. draft_appeal_package
-6. prepare_external_review_escalation
+5. build_physician_evidence_request
+6. draft_appeal_package
+7. prepare_external_review_escalation
 
 Then write a final answer for a patient who is stressed and has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual claim \
@@ -55,6 +64,10 @@ only, e.g. "2 of 3 items look worth appealing").
 - A direct pointer to decisions_needed.md as the place to read exactly which \
 items are worth appealing and why, and which aren't - do not enumerate them \
 yourself.
+- One line noting that physician_evidence_request.md lists any specific \
+documentation worth asking your doctor's office for before the appeal is \
+sent, if this denial turns on medical necessity - without inventing any \
+specifics yourself.
 - One line noting that decisions_needed.md and escalation_package.md also \
 cover what to do if the internal appeal doesn't fully resolve this - \
 independent external review, and possibly a state Department of Insurance \
@@ -79,6 +92,7 @@ class ClaimCase:
     findings: DenialFindings | None = None
     appeal: AppealPackage | None = None
     escalation: EscalationPackage | None = None
+    physician_evidence_request: PhysicianEvidenceRequest | None = None
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -159,6 +173,40 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def build_physician_evidence_request_tool() -> str:
+        """Work out what specific clinical documentation, if any, the
+        patient's treating physician's office should be asked to send to
+        support the appeal, and draft that request. Only denied line items
+        that turn on medical necessity need this - a pure billing-code fix
+        or a plan exclusion doesn't. Must be called after
+        investigate_denial_tool, and should run before draft_appeal_package
+        so the appeal's open questions can point to it."""
+        if case.claim is None or case.findings is None:
+            return "Error: call extract_claim_details and investigate_denial_tool first."
+        case.physician_evidence_request = build_physician_evidence_request(case.claim, case.findings)
+        save_text_file(
+            str(out_dir / "physician_evidence_request.md"),
+            render_physician_evidence_request_md(case.physician_evidence_request),
+        )
+        save_text_file(
+            str(out_dir / "decisions_needed.md"),
+            render_decision_summary_md(case.claim, case.findings, case.escalation, case.physician_evidence_request),
+        )
+        n = len(case.physician_evidence_request.items)
+        if n:
+            msg = (
+                f"Physician evidence request written to physician_evidence_request.md. "
+                f"{n} line item(s) need specific documentation from your doctor's office before appealing."
+            )
+        else:
+            msg = (
+                "Physician evidence request written to physician_evidence_request.md. "
+                "Nothing here turns on missing physician documentation - none needed."
+            )
+        case.activity_log.append(msg)
+        return msg
+
+    @tool
     def draft_appeal_package() -> str:
         """Draft the formal appeal letter for line items worth appealing, and a
         plain-language explanation for the ones that aren't. Call after
@@ -192,7 +240,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         save_text_file(str(out_dir / "escalation_package.md"), render_escalation_md(case.escalation))
         save_text_file(
             str(out_dir / "decisions_needed.md"),
-            render_decision_summary_md(case.claim, case.findings, case.escalation),
+            render_decision_summary_md(case.claim, case.findings, case.escalation, case.physician_evidence_request),
         )
         ics_message = create_external_review_deadline_reminder(
             path=str(out_dir / "external_review_deadline.ics"),
@@ -216,6 +264,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             extract_claim_details,
             create_appeal_deadline_reminder_tool,
             investigate_denial_tool,
+            build_physician_evidence_request_tool,
             draft_appeal_package,
             prepare_external_review_escalation,
         ],

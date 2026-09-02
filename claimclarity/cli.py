@@ -60,7 +60,14 @@ def main(argv: list[str] | None = None) -> int:
     # decisions_needed.md is - the orchestrator's reply is shown after it,
     # clearly labeled, for transparency rather than as the thing to rely on.
     print("\n\n=== Decisions needed ===\n")
-    print(render_decision_summary_md(result.case.claim, result.case.findings, result.case.escalation))
+    print(
+        render_decision_summary_md(
+            result.case.claim,
+            result.case.findings,
+            result.case.escalation,
+            result.case.physician_evidence_request,
+        )
+    )
     print("=== Orchestrator's own summary (informational; see above for the verified version) ===\n")
     print(result.summary_text)
     print(f"\nFiles written to: {args.out}/")
