@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 
 import glacierwatch.orchestrator as orchestrator_module
-from glacierwatch.models import PriorityLevel, SiteRiskBrief, WatchlistReport
+from glacierwatch.models import CommunityAlertBulletin, DownstreamSettlement, PriorityLevel, SiteRiskBrief, WatchlistReport
 from glacierwatch.orchestrator import WatchRun, build_orchestrator
 
 FAKE_OPEN_METEO_RESPONSE = {
@@ -158,3 +158,81 @@ def test_explicit_none_callback_handler_is_actually_silent(tmp_path: Path):
     run = WatchRun(output_dir=str(tmp_path))
     quiet_orchestrator = build_orchestrator(run, callback_handler=None)
     assert quiet_orchestrator.callback_handler is null_callback_handler
+
+
+def _fake_draft_community_alert(brief, settlements):
+    return CommunityAlertBulletin(
+        site_id=brief.site_id,
+        site_name=brief.site_name,
+        priority_level=brief.priority_level,
+        situation_summary=f"fake situation summary for {brief.site_id}",
+        recommended_actions=["Review local evacuation routes."],
+        settlements_to_notify=settlements,
+        alert_text_en="fake alert text",
+        alert_text_local="[Needs local-language review - no confident translation available]",
+    )
+
+
+def test_draft_community_alerts_happy_path_writes_expected_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "draft_community_alert", _fake_draft_community_alert)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.PRIORITY,
+            rationale="fake rationale", active_triggers=["fake trigger"], recommended_action="fake action",
+        ),
+        SiteRiskBrief(
+            site_id="chorabari", site_name="Chorabari Lake (Gandhi Sarovar)", priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "Drafted 1 community alert bulletin" in result
+    assert "community_alerts_index.md" in result
+
+    assert (tmp_path / "community_alert_gepang-gath.md").exists()
+    assert not (tmp_path / "community_alert_chorabari.md").exists()
+    assert (tmp_path / "community_alerts_index.md").exists()
+
+    alert_md = (tmp_path / "community_alert_gepang-gath.md").read_text()
+    assert "Sissu" in alert_md
+    assert "decision-support triage tool, not a prediction system" in alert_md
+
+    index_md = (tmp_path / "community_alerts_index.md").read_text()
+    assert "Gepang Gath Lake" in index_md
+    assert "Chorabari" not in index_md
+
+    assert len(run.alerts) == 1
+    assert run.alerts[0].site_id == "gepang-gath"
+
+
+def test_draft_community_alerts_zero_priority_sites_is_graceful_noop(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "draft_community_alert", _fake_draft_community_alert)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="south-lhonak", site_name="South Lhonak Lake", priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "no priority sites this week" in result.lower()
+    assert "no community alert bulletins drafted" in result.lower()
+
+    assert not (tmp_path / "community_alert_south-lhonak.md").exists()
+    assert not (tmp_path / "community_alerts_index.md").exists()
+    assert run.alerts == []
+
+
+def test_draft_community_alerts_before_any_assessment_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "Error" in result
+    assert "assess_site_risk" in result

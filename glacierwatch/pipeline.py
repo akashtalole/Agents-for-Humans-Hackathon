@@ -8,7 +8,8 @@ from glacierwatch.orchestrator import WatchRun, build_orchestrator
 TASK_PROMPT = (
     "Run this week's watchlist end to end: load the reference sites, fetch live "
     "conditions for every active_watch site, assess every site's priority level, "
-    "and draft the final report. Then give me the summary."
+    "draft the final report, and draft community alert bulletins for any "
+    "priority-level sites. Then give me the summary."
 )
 
 

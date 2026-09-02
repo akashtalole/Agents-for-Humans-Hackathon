@@ -23,6 +23,18 @@ State disaster management authorities, and village-level disaster committees in 
 
 Run it against the bundled reference sites — two currently-monitored lakes (Gepang Gath and Samudra Tapu, both in Himachal Pradesh's Lahaul-Spiti, both formally assessed by India's National Remote Sensing Centre) and two historical case studies (South Lhonak, Sikkim and Chorabari, Uttarakhand) used to ground the tool's rainfall-trigger threshold in a real, documented failure. See **Quickstart** below.
 
+## Downstream Exposure & Community Alert Bulletins
+
+`watchlist_report.md` is written for officials who already know what a moraine dam or an "extremely heavy rainfall" flag means. It says nothing about who is actually downstream of a flagged site, or how to tell them - which is exactly the gap that turned a formally-identified, monitored hazard into 42 deaths at South Lhonak in 2023: the lake was known, but the early-warning system that was supposed to reach people downstream lost power at the critical moment. Good triage that never reaches a village committee doesn't save anyone. This feature is the pipeline's fifth step, closing that gap:
+
+5. **Drafts a Community Alert Bulletin** for every site assessed at `priority` level this week (only priority sites - `elevated` and `routine` sites don't get one), written in plain language for a village-level committee rather than officials, listing the specific downstream settlements potentially exposed, concrete actions the committee itself can take (never an evacuation order - that's not this tool's authority), and a short public-notice text in English plus, where a confident translation is possible, in the local language (Hindi or Nepali, Devanagari script).
+
+This draws on a new bundled reference file, `glacierwatch/data/downstream_exposure.json`, listing plausible downstream settlements per site with approximate distance and a coarse population-exposure *band* (e.g. "small hamlet <500") - deliberately never a precise headcount. **Be clear-eyed about this file's authority: unlike `watchlist.json`, most of its settlement/population entries are illustrative placeholders for this demo, not verified data**, and its `data_caveat` field says so explicitly. The one exception is Sissu village near Gepang Gath Lake, whose exposure (reachable in ~21 minutes of a breach) is directly sourced to the same NRSC/press modeling cited in `watchlist.json`. A real deployment of this feature must replace the illustrative entries with verified settlement and population data from the relevant state disaster management authority and national census - never hand a village committee a bulletin built on invented population figures.
+
+Every bulletin carries the same non-prediction disclaimer as the rest of this project, and the drafting sub-agent (`glacierwatch/agents/alert_drafter.py`) is instructed, same as `risk_assessor.py`, to use only the data it's given - never inventing a settlement, a distance, or a population figure, and never claiming a flood or avalanche "will" happen. If a site's downstream exposure isn't documented yet, the bulletin says so plainly instead of guessing.
+
+Outputs: `community_alert_<site_id>.md` per priority site, plus `community_alerts_index.md` listing which sites got one this week (or, when zero sites are at priority level, a clear "no alerts drafted" note - the pipeline never writes empty per-site files).
+
 ## Architecture
 
 Same proven shape as this repo's other two entries: a Strands **"agents as tools"** orchestrator, validated Pydantic structured outputs at every step, and a deterministic, code-rendered report as the trusted output.
@@ -35,21 +47,26 @@ flowchart TD
     O -->|tool call| W["fetch_current_conditions\n(per active site)"]
     O -->|tool call| A["assess_site_risk\n→ Risk Assessor Agent"]
     O -->|tool call| D["draft_watchlist_report\n→ Report Drafter Agent"]
+    O -->|tool call| C["draft_community_alerts\n→ Alert Drafter Agent\n(priority sites only)"]
 
     W -->|real HTTP calls| API1[Open-Meteo weather API]
     W -->|real HTTP calls| API2[USGS earthquake API]
+    C -->|bundled, illustrative| API3[downstream_exposure.json]
 
     L -->|WatchSite x4, cited| J[(Shared WatchRun state)]
     W -->|CurrentConditions, live| J
     A -->|SiteRiskBrief| J
     D -->|WatchlistReport| J
+    C -->|CommunityAlertBulletin| J
 
     J --> F1[site_profile_*.md]
     J --> F2[site_conditions_*.md]
     J --> F3[watchlist_report.md]
+    J --> F4["community_alert_*.md\n+ community_alerts_index.md"]
 
     O -->|plain-English summary| U
     F3 -->|priority-ordered, disclaimed| U
+    F4 -->|village-committee facing| V[Downstream community]
 ```
 
 Design choices worth calling out:
@@ -74,7 +91,7 @@ Run the CLI:
 glacierwatch run --out output
 ```
 
-This streams each tool call as it happens (including the live weather/seismic API calls), then prints the deterministic weekly watchlist report, followed by the orchestrator's own summary, and writes `site_profile_*.md`, `site_conditions_*.md`, and `watchlist_report.md` to `output/`.
+This streams each tool call as it happens (including the live weather/seismic API calls), then prints the deterministic weekly watchlist report, followed by the orchestrator's own summary, and writes `site_profile_*.md`, `site_conditions_*.md`, `watchlist_report.md`, and (for any priority-level sites) `community_alert_*.md` plus `community_alerts_index.md` to `output/`.
 
 Or run the Streamlit demo:
 
@@ -96,15 +113,18 @@ glacierwatch/
   rendering.py                  Deterministic Markdown rendering (no LLM calls)
   data/
     watchlist.json               Bundled reference sites - every claim cited
+    downstream_exposure.json     Bundled downstream settlements - illustrative, see data_caveat field
   tools/
     documents.py                 @tool save_text_file
     weather.py                   Live precipitation via Open-Meteo + IMD categorization
     seismic.py                   Live seismic activity via USGS earthquake catalog
     watchlist.py                 Loads the bundled reference data
+    downstream.py                 Loads the bundled downstream-exposure data
     _http.py                      Shared retry helper for the two live API calls
   agents/
     risk_assessor.py              Sub-agent: WatchSite + CurrentConditions -> SiteRiskBrief
     report_drafter.py             Sub-agent: -> WatchlistReport
+    alert_drafter.py              Sub-agent: SiteRiskBrief + settlements -> CommunityAlertBulletin
   orchestrator.py                 Orchestrator Agent (agents-as-tools) + shared WatchRun state
   pipeline.py                     run_watchlist() convenience wrapper used by CLI/UI
   cli.py                          `glacierwatch run` / `glacierwatch status`
@@ -132,3 +152,4 @@ GLACIERWATCH_RUN_INTEGRATION=1 pytest tests/test_glacierwatch_pipeline_integrati
 - **The rainfall trigger threshold is a reasonable proxy, not a validated model.** It's set at IMD's official "extremely heavy rainfall" category (>204.4mm/24h), the same order of magnitude as the documented trigger in the 2013 Chorabari Lake failure (>315mm combined with rapid glacier melt) - but real GLOF/avalanche triggering involves glacier dynamics, permafrost, and slope mechanics this tool has no access to. A quiet week of rainfall does not mean a site is safe.
 - **What's actually been verified, precisely:** every HTTP-calling tool function, the IMD rainfall categorization, the distance calculation, the rendering, and the orchestrator's tool-call plumbing are covered by offline tests using response fixtures shaped identically to real captured API responses. The full pipeline has also been run against the real Open-Meteo and USGS APIs directly during development (not just mocked). Whether the orchestrator LLM reliably sequences all tool calls unprompted, and the quality of its risk judgments with a real model in the loop, depends on model access this development environment did not always have reliably - run `GLACIERWATCH_RUN_INTEGRATION=1 pytest tests/test_glacierwatch_pipeline_integration.py` yourself before treating a specific model/prompt combination as demo-proven.
 - **Every fact in `glacierwatch/data/watchlist.json` is sourced** to specific published reporting (NRSC assessments, peer-reviewed papers, established news coverage) - see the `sources` field on each entry. Nothing there is estimated or invented.
+- **`glacierwatch/data/downstream_exposure.json` is explicitly the opposite of that:** demo-grade and mostly illustrative, not verified. Its `data_caveat` field says so, and most individual entries are marked "illustrative, unverified" rather than sourced. The one settlement backed by the same real published modeling as `watchlist.json` is Sissu village near Gepang Gath Lake. Before any real village committee acts on a `community_alert_*.md` bulletin, this file must be replaced with verified settlement and population data from the relevant state disaster management authority and national census - shipping placeholder population figures to a real community would be a serious harm this project takes seriously enough to flag loudly here, not just in the JSON comment.
