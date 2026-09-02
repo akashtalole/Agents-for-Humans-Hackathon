@@ -220,3 +220,6 @@ __marimo__/
 # BidWright generated output
 /output/
 
+# Claude Code local state (e.g. subagent worktree checkouts)
+/.claude/
+
