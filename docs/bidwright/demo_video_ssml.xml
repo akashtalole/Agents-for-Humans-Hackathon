@@ -1,0 +1,165 @@
+<speak>
+
+<!-- ================================================================ -->
+<!-- SECTION 1: HOOK + PROBLEM                                        -->
+<!-- SCREEN: Open on a stack of paper / a dense RFP PDF on screen, then cut to the BidWright title -->
+<!-- Target run time for this section: ~35s -->
+<!-- ================================================================ -->
+<p>
+  <s>Every year, small businesses lose contracts they were fully qualified to win.</s>
+  <s>Not on price. Not on quality of work. On a <emphasis level="moderate">technicality</emphasis> —
+  a missing certificate, an insurance minimum that's a few thousand dollars short,
+  a signature page nobody noticed was required.</s>
+</p>
+
+<p>
+  <s>Reading a dense RFP, checking it line by line against your own paperwork,
+  and writing a tailored proposal can take hours — hours a business owner
+  should be spending running the business, or bidding on the <emphasis>next</emphasis> contract.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+  <s>This is BidWright — an agent built with the Strands Agents SDK that reads
+  the RFP, checks your company against every requirement, drafts the proposal,
+  and only asks you to decide the things only <emphasis>you</emphasis> can decide.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 2: WHO IT'S FOR                                          -->
+<!-- SCREEN: Photos/icons representing landscapers, IT shops, cleaning companies, construction subs -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>BidWright is built for the people who respond to RFPs regularly, but
+  don't have a dedicated compliance team to do it:</s>
+  <s>municipal contractors, landscapers, janitorial and facilities companies,
+  IT and managed-service providers, construction subcontractors —
+  office managers and owners who are the entire back office.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 3: WHY IT MATTERS                                        -->
+<!-- SCREEN: Simple before/after graphic — hours of manual review vs. minutes with BidWright -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>What used to take an afternoon of cross-referencing now runs unattended.</s>
+  <s>And because the compliance check never claims something is met unless
+  your own paperwork actually backs it up, you're not just saving time —
+  you're not losing a winnable bid to a mistake you didn't catch.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 4: LIVE DEMO WALKTHROUGH                                 -->
+<!-- SCREEN: Streamlit app, sidebar visible, example RFP + company profile selected -->
+<!-- Target run time: ~2m 15s — this is the core of the video -->
+<!-- ================================================================ -->
+<p>
+  <s>Let's watch it work on a real example: a municipal landscaping RFP,
+  and a small landscaping company's actual capability profile.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Click "Run BidWright"; live agent activity log streaming tool calls -->
+<p>
+  <s>One click, and an orchestrator agent takes over — coordinating three
+  specialized sub-agents, each returning validated, structured data instead
+  of loose text one agent might hand the next and get wrong.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: RFP Analyzer extracting requirements — highlight requirements.md content -->
+<p>
+  <s>First, the RFP Analyzer reads the full solicitation and extracts a
+  structured record: the submission deadline, required licenses and
+  certifications, minimum insurance coverage, evaluation criteria,
+  and a complete submission checklist.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Compliance Checker output — compliance_report.md, gaps highlighted -->
+<p>
+  <s>Next, the Compliance Checker compares every single requirement against
+  the company's actual profile — insurance certificates, licenses, staff
+  qualifications — and marks each one <prosody rate="95%">met</prosody>,
+  <prosody rate="95%">gap</prosody>, or <prosody rate="95%">needs review</prosody>,
+  with a severity and a concrete next step.</s>
+</p>
+
+<break time="400ms"/>
+
+<p>
+  <s>On this run, it correctly caught the company's general liability
+  insurance sitting at one million dollars when the RFP requires two million
+  per occurrence — along with a missing signed cover letter and a missing
+  pricing schedule. Real gaps, precisely identified.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: submission_deadline.ics / calendar reminder -->
+<p>
+  <s>While that's happening, BidWright also writes a calendar reminder for
+  the submission deadline — with automatic three-day and one-day advance
+  warnings, so the deadline itself never becomes one more thing to track
+  by hand.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Proposal Drafter output — proposal_draft.md tab -->
+<p>
+  <s>Then the Proposal Drafter writes the actual proposal: cover letter,
+  executive summary, technical approach, qualifications, and a compliance
+  matrix — honestly flagging the open gaps instead of papering over them.
+  Pricing is left to the owner; BidWright never invents numbers.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Decisions Needed tab, front and center -->
+<p>
+  <s>And everything funnels into exactly one place a busy owner actually
+  needs to read: <emphasis level="moderate">Decisions Needed</emphasis>.</s>
+  <s>One summary. Either "ready to submit," or here are the specific
+  blocking gaps and what closes each one. Nothing else requires your
+  attention unless you want to dig in.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 5: CLOSE                                                 -->
+<!-- SCREEN: BidWright logo/title card, then architecture diagram briefly -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>BidWright drafts. It doesn't submit — a human always reviews and signs
+  off, which is the entire point of that one summary.</s>
+</p>
+
+<p>
+  <s>Next up: broader document formats, more jurisdictions, and a verified
+  deployment on Amazon Bedrock AgentCore for teams that want it running in
+  the cloud, not just on a laptop.</s>
+</p>
+
+<break time="400ms"/>
+
+<p>
+  <s>BidWright — built with the Strands Agents SDK, for the Agents for
+  Humans Hackathon. Read the RFP once. Draft with confidence.</s>
+</p>
+
+</speak>
