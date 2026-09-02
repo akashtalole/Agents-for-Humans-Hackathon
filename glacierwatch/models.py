@@ -95,3 +95,45 @@ class WatchlistReport(BaseModel):
     overall_summary: str = Field(
         description="One or two sentences: how many sites need priority attention this week, and why"
     )
+
+
+class DownstreamSettlement(BaseModel):
+    """One plausibly-exposed downstream settlement from the bundled,
+    illustrative glacierwatch/data/downstream_exposure.json reference data -
+    see that file's data_caveat field before treating any of this as
+    verified."""
+
+    name: str
+    distance_km: float = Field(description="Approximate downstream distance in km - illustrative, not from flood-routing modeling unless the notes say otherwise")
+    population_band: str = Field(
+        description="A coarse population-exposure band, e.g. 'small hamlet <500' or 'town 5,000-20,000' - "
+        "never a false-precision exact figure, and never invented where no source exists"
+    )
+    notes: str = ""
+
+
+class CommunityAlertBulletin(BaseModel):
+    """Plain-language output for a village-level committee downstream of a
+    priority-level site - distinct audience and register from
+    SiteRiskBrief/WatchlistReport, which are written for officials. Never a
+    prediction; always the same non-prediction, seek-expert-guidance
+    discipline as the rest of this project."""
+
+    site_id: str
+    site_name: str
+    priority_level: PriorityLevel
+    situation_summary: str = Field(
+        description="Plain, non-technical explanation of why this site was flagged this week, for a reader "
+        "with no hazard-terminology background"
+    )
+    recommended_actions: list[str] = Field(
+        default_factory=list,
+        description="Concrete steps a village committee itself can take - never an evacuation order",
+    )
+    settlements_to_notify: list[DownstreamSettlement] = Field(default_factory=list)
+    alert_text_en: str = Field(description="Short public notice in plain English a committee could read aloud or post")
+    alert_text_local: str = Field(
+        description="Same notice in the appropriate local language (Hindi or Nepali, Devanagari script) if a "
+        "confident, natural translation is possible - otherwise a clear '[Needs local-language review]' label, "
+        "never a garbled machine translation"
+    )

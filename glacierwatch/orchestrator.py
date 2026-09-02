@@ -22,12 +22,27 @@ from pathlib import Path
 import httpx
 from strands import Agent, tool
 
+from glacierwatch.agents.alert_drafter import draft_community_alert
 from glacierwatch.agents.report_drafter import draft_watchlist_report
 from glacierwatch.agents.risk_assessor import assess_site
 from glacierwatch.config import create_agent
-from glacierwatch.models import CurrentConditions, SiteRiskBrief, WatchlistReport, WatchSite
-from glacierwatch.rendering import render_conditions_md, render_site_profile_md, render_watchlist_report_md
+from glacierwatch.models import (
+    CommunityAlertBulletin,
+    CurrentConditions,
+    PriorityLevel,
+    SiteRiskBrief,
+    WatchlistReport,
+    WatchSite,
+)
+from glacierwatch.rendering import (
+    render_community_alert_md,
+    render_community_alerts_index_md,
+    render_conditions_md,
+    render_site_profile_md,
+    render_watchlist_report_md,
+)
 from glacierwatch.tools.documents import save_text_file
+from glacierwatch.tools.downstream import load_downstream_exposure
 from glacierwatch.tools.seismic import fetch_seismic_events
 from glacierwatch.tools.seismic import source_note as seismic_source_note
 from glacierwatch.tools.watchlist import load_all_sites
@@ -48,6 +63,7 @@ For every run, always execute the full pipeline in this order:
 2. For every active_watch site returned: fetch_current_conditions(site_id)
 3. For every site (active_watch AND historical_case_study): assess_site_risk(site_id)
 4. draft_watchlist_report
+5. draft_community_alerts
 
 Then write a final answer for a busy official who has 30 seconds. Your tool \
 results only give you counts and filenames, not the actual rationale text \
@@ -59,6 +75,9 @@ final answer must include, in this order:
 (state the count only, e.g. "1 of 4 sites at priority level").
 - A direct pointer to watchlist_report.md as the place to read exactly \
 which sites and why - do not enumerate them yourself.
+- One line stating how many community alert bulletins were drafted (state \
+the count only, from the draft_community_alerts tool result - never invent \
+settlement names or details) and a pointer to community_alerts_index.md.
 - One sentence restating that this is decision support, not a prediction, \
 and that on-site expert assessment is still required for any operational \
 decision.
@@ -77,6 +96,7 @@ class WatchRun:
     conditions_by_site: dict[str, CurrentConditions] = field(default_factory=dict)
     briefs: list[SiteRiskBrief] = field(default_factory=list)
     report: WatchlistReport | None = None
+    alerts: list[CommunityAlertBulletin] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -184,9 +204,44 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         run.activity_log.append(msg)
         return msg
 
+    @tool
+    def draft_community_alerts() -> str:
+        """Draft a plain-language Community Alert Bulletin, with downstream
+        settlements to notify, for every site assessed at priority level
+        this week. Must be called after assess_site_risk has run for every
+        site (typically right after draft_watchlist_report). If zero sites
+        are at priority level, succeeds with a clear no-op message and
+        writes no per-site bulletin files."""
+        if not run.briefs:
+            return "Error: no sites have been assessed yet. Call assess_site_risk for each site first."
+
+        priority_briefs = [b for b in run.briefs if b.priority_level == PriorityLevel.PRIORITY]
+        if not priority_briefs:
+            msg = "No priority sites this week - no community alert bulletins drafted."
+            run.activity_log.append(msg)
+            return msg
+
+        run.alerts = []
+        for brief in priority_briefs:
+            settlements = load_downstream_exposure(brief.site_id)
+            bulletin = draft_community_alert(brief, settlements)
+            run.alerts.append(bulletin)
+            save_text_file(str(out_dir / f"community_alert_{brief.site_id}.md"), render_community_alert_md(bulletin))
+        save_text_file(str(out_dir / "community_alerts_index.md"), render_community_alerts_index_md(run.alerts))
+
+        msg = f"Drafted {len(run.alerts)} community alert bulletin(s). See community_alerts_index.md."
+        run.activity_log.append(msg)
+        return msg
+
     agent_kwargs = dict(
         system_prompt=ORCHESTRATOR_PROMPT,
-        tools=[load_watchlist, fetch_current_conditions, assess_site_risk, draft_watchlist_report_tool],
+        tools=[
+            load_watchlist,
+            fetch_current_conditions,
+            assess_site_risk,
+            draft_watchlist_report_tool,
+            draft_community_alerts,
+        ],
     )
     # Always pass callback_handler explicitly, even when it's None - see
     # bidwright/orchestrator.py's comment on this same line for why.
