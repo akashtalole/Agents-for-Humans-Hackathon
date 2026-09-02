@@ -6,6 +6,7 @@ import sys
 
 from claimclarity.config import model_status
 from claimclarity.pipeline import run_claim_case
+from claimclarity.rendering import render_decision_summary_md
 
 
 def _print_stream_event(**kwargs) -> None:
@@ -51,7 +52,16 @@ def main(argv: list[str] | None = None) -> int:
         callback_handler=callback_handler,
     )
 
-    print("\n\n=== ClaimClarity summary ===\n")
+    # The orchestrator's own free-text reply is convenient but is still an LLM
+    # talking - it can occasionally misstate specifics even when every generated
+    # file is correct (structured data flows through validated Pydantic models,
+    # not the model's retelling of its own work). So the trusted headline here
+    # is rendered straight from that structured data, the same way
+    # decisions_needed.md is - the orchestrator's reply is shown after it,
+    # clearly labeled, for transparency rather than as the thing to rely on.
+    print("\n\n=== Decisions needed ===\n")
+    print(render_decision_summary_md(result.case.claim, result.case.findings))
+    print("=== Orchestrator's own summary (informational; see above for the verified version) ===\n")
     print(result.summary_text)
     print(f"\nFiles written to: {args.out}/")
     return 0

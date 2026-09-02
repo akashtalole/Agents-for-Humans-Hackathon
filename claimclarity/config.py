@@ -39,7 +39,11 @@ def get_model():
         return AnthropicModel(
             client_args={"api_key": os.environ["ANTHROPIC_API_KEY"]},
             model_id=model_id,
-            max_tokens=4096,
+            # See bidwright/config.py's comment on this same setting: a response
+            # cut off mid-tool-call at a low ceiling can turn into a retry loop
+            # that never succeeds. Applying the same higher limit here
+            # defensively, even though ClaimClarity's live run didn't hit it.
+            max_tokens=8192,
         )
 
     if use_bedrock:

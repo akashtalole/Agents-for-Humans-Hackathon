@@ -106,7 +106,9 @@ if result is not None:
     else:
         st.info("Nothing here looks worth appealing — see the explanation for why.")
 
-    tabs = st.tabs(["Decisions Needed", "Claim Summary", "Denial Findings", "Appeal Package", "Agent Summary"])
+    tabs = st.tabs(
+        ["Decisions Needed", "Claim Summary", "Denial Findings", "Appeal Package", "Agent's Own Summary (unverified)"]
+    )
     output_dir: Path = st.session_state.output_dir
 
     def _read(name: str) -> str:
@@ -136,6 +138,12 @@ if result is not None:
         st.markdown(content)
         st.download_button("Download appeal_package.md", content, file_name="appeal_package.md")
     with tabs[4]:
+        st.caption(
+            "This is the orchestrator's own free-text reply, shown for transparency. "
+            "It can occasionally misstate specifics even when every generated file above "
+            "is correct - treat **Decisions Needed** and the generated files as the source "
+            "of truth, not this tab."
+        )
         st.markdown(result.summary_text)
 else:
     st.info("Choose claim documents in the sidebar, then click **Run ClaimClarity**.")

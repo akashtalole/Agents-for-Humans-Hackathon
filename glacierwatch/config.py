@@ -1,8 +1,7 @@
-"""Model provider selection for every agent in BidWright.
+"""Model provider selection for every agent in GlacierWatch.
 
-BidWright works with either Anthropic's API directly or Amazon Bedrock,
-picked automatically from environment variables so the same code runs
-locally (Anthropic key) or in AgentCore (Bedrock, no key needed).
+Mirrors bidwright/config.py and claimclarity/config.py deliberately -
+GlacierWatch is a third, independently deployable project in this repo.
 """
 from __future__ import annotations
 
@@ -21,12 +20,12 @@ def get_model():
     """Return a Strands model object/id, or None to let Strands use its own default.
 
     Resolution order:
-      1. BIDWRIGHT_MODEL_PROVIDER=anthropic|bedrock forces the provider.
+      1. GLACIERWATCH_MODEL_PROVIDER=anthropic|bedrock forces the provider.
       2. Otherwise, an ANTHROPIC_API_KEY in the environment selects Anthropic direct.
       3. Otherwise, AWS credentials being present selects Bedrock.
       4. Otherwise, None (Strands' own default resolution applies).
     """
-    provider = os.environ.get("BIDWRIGHT_MODEL_PROVIDER", "").strip().lower()
+    provider = os.environ.get("GLACIERWATCH_MODEL_PROVIDER", "").strip().lower()
     has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
     has_aws_creds = bool(os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE"))
 
@@ -36,27 +35,24 @@ def get_model():
     if use_anthropic:
         from strands.models import AnthropicModel
 
-        model_id = os.environ.get("BIDWRIGHT_MODEL_ID", DEFAULT_ANTHROPIC_MODEL_ID)
+        model_id = os.environ.get("GLACIERWATCH_MODEL_ID", DEFAULT_ANTHROPIC_MODEL_ID)
         return AnthropicModel(
             client_args={"api_key": os.environ["ANTHROPIC_API_KEY"]},
             model_id=model_id,
-            # Low limits are dangerous here, not just limiting: a response cut off
-            # mid-tool-call streams an empty/truncated tool input, which Strands
-            # silently defaults to `{}` and retries - and if the model hits the
-            # same ceiling on every retry, that becomes an infinite loop that
-            # eventually dies with a 400 from the API. Seen in practice at 4096
-            # on this orchestrator's more verbose turns.
+            # See bidwright/config.py's comment on this setting: a response cut
+            # off mid-tool-call at a low ceiling can turn into a retry loop
+            # that never succeeds.
             max_tokens=8192,
         )
 
     if use_bedrock:
-        return os.environ.get("BIDWRIGHT_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID)
+        return os.environ.get("GLACIERWATCH_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID)
 
     return None
 
 
 def create_agent(**kwargs) -> Agent:
-    """Build a Strands Agent using BidWright's configured model, unless the
+    """Build a Strands Agent using GlacierWatch's configured model, unless the
     caller already specified one."""
     if "model" not in kwargs:
         model = get_model()
@@ -67,15 +63,15 @@ def create_agent(**kwargs) -> Agent:
 
 def model_status() -> str:
     """Human-readable description of which provider/model will be used, for UI/CLI display."""
-    provider = os.environ.get("BIDWRIGHT_MODEL_PROVIDER", "").strip().lower()
+    provider = os.environ.get("GLACIERWATCH_MODEL_PROVIDER", "").strip().lower()
     if provider == "anthropic" or (not provider and os.environ.get("ANTHROPIC_API_KEY")):
-        model_id = os.environ.get("BIDWRIGHT_MODEL_ID", DEFAULT_ANTHROPIC_MODEL_ID)
+        model_id = os.environ.get("GLACIERWATCH_MODEL_ID", DEFAULT_ANTHROPIC_MODEL_ID)
         return f"Anthropic API direct ({model_id})"
     if provider == "bedrock" or (
         not provider
         and not os.environ.get("ANTHROPIC_API_KEY")
         and (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE"))
     ):
-        model_id = os.environ.get("BIDWRIGHT_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID)
+        model_id = os.environ.get("GLACIERWATCH_MODEL_ID", DEFAULT_BEDROCK_MODEL_ID)
         return f"Amazon Bedrock ({model_id})"
     return "No credentials found (set ANTHROPIC_API_KEY or configure AWS credentials)"

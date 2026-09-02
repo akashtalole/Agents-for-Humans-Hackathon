@@ -40,11 +40,17 @@ For every case, always run the full pipeline in this order:
 5. draft_appeal_package
 
 Then write a final answer for a patient who is stressed and has 30 seconds. \
-It must include, in this order:
-- One-line bottom line: is there anything worth appealing, or not?
+Your tool results only give you counts and filenames, not the actual claim \
+details, procedure codes, or dollar amounts - so do NOT try to recall or \
+restate specifics from memory. You do not reliably have them, and guessing \
+produces confident-sounding fabrications. Instead, your final answer must \
+include, in this order:
+- One-line bottom line: is anything worth appealing, or not (state the count \
+only, e.g. "2 of 3 items look worth appealing").
 - The appeal deadline.
-- Each item worth appealing, in plain language, with why.
-- Any item NOT worth appealing, and why - so they don't waste time on it.
+- A direct pointer to decisions_needed.md as the place to read exactly which \
+items are worth appealing and why, and which aren't - do not enumerate them \
+yourself.
 - Where to find the full claim summary, findings, and appeal letter files.
 
 Never claim a diagnosis code is valid or invalid without the investigation \
@@ -169,6 +175,10 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             draft_appeal_package,
         ],
     )
-    if callback_handler is not None:
-        agent_kwargs["callback_handler"] = callback_handler
+    # Always pass callback_handler explicitly, even when it's None: Strands'
+    # Agent treats an *omitted* callback_handler as "use my own verbose
+    # PrintingCallbackHandler default" but an *explicit* None as "stay
+    # silent" (null_callback_handler) - conflating "not given" with
+    # "silence requested" here would make --quiet a no-op.
+    agent_kwargs["callback_handler"] = callback_handler
     return create_agent(**agent_kwargs)

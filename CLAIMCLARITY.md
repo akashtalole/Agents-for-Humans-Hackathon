@@ -232,12 +232,21 @@ stretch goal, not a requirement — everything above runs standalone.
   fast and well-informed, not to replace it.
 - **What's actually been verified, precisely:** the tool functions (including
   ICD-10 lookups against the bundled data), Pydantic schemas, Markdown
-  rendering, and the orchestrator's tool-call plumbing are covered by 30+
-  offline tests and have run clean. The full pipeline's behavior *with a real
-  model in the loop* — whether the investigator agent reliably calls
-  `lookup_icd10_code` before judging a code, classification quality, appeal
-  letter quality — has been spot-checked but depends on model access this
-  development environment didn't have reliably; run
+  rendering, and the orchestrator's tool-call plumbing are covered by 35+
+  offline tests and have run clean. `test_claimclarity_pipeline_integration.py`
+  has also passed against a real model end to end, correctly calling
+  `lookup_icd10_code` before judging a code and correctly classifying both
+  the fixable billing error and the genuine plan exclusion in the bundled
+  example. A live run also surfaced a real bug worth knowing about: the
+  orchestrator's own free-text reply (not the generated files, which were
+  correctly grounded every time) once fabricated an entirely different claim
+  scenario - its tool results intentionally carry only counts and filenames,
+  not full detail, but its prompt was asking it to enumerate specifics
+  anyway. Fixed by having it defer to `decisions_needed.md` instead of
+  reconstructing details from memory, and by making the CLI/UI show that
+  deterministic file as the trusted headline, with the orchestrator's own
+  reply demoted to a clearly-labeled, informational-only view. If you change
+  the orchestrator prompt, re-run
   `CLAIMCLARITY_RUN_INTEGRATION=1 pytest tests/test_claimclarity_pipeline_integration.py`
-  yourself with a working `ANTHROPIC_API_KEY` or Bedrock access before
-  treating a specific model/prompt combination as demo-proven.
+  with a working `ANTHROPIC_API_KEY` or Bedrock access rather than assuming
+  a prompt edit is safe.

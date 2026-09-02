@@ -1,0 +1,108 @@
+{
+  "_source_note": "A small, illustrative subset of documented, publicly reported glacial hazard sites in the Indian Himalaya - not a comprehensive inventory. India's National Disaster Management Authority has identified 56 glacial lakes nationally for real-time monitoring; ISRO/NRSC's 2023 inventory (Rao et al.) catalogued 28,043 glacial lakes >= 0.25 hectares across the Indian Himalayan Region. Every entry below is sourced to specific published reporting; nothing here is estimated or invented. For a real deployment this file should be replaced with the full NDMA/NRSC monitored-lake inventory - see glacierwatch/tools/watchlist.py docstring.",
+  "regional_context": {
+    "total_glacial_lakes_indian_himalaya": "28,043 lakes >= 0.25 ha, per ISRO/NRSC inventory (Rao et al., 2023)",
+    "nationally_monitored_at_risk_lakes": "56 lakes identified by India's National Disaster Management Authority for real-time early-warning monitoring",
+    "sikkim_susceptibility_tiers": "Updated GLOF susceptibility mapping of Sikkim's moraine-dammed lakes: 1 very-high, 8 high, 22 medium, 56 low, 18 very-low risk (ScienceDirect, 'Increasing risk of glacial lake outburst flood in Sikkim, Eastern Himalaya under climate warming', 2024)",
+    "sutlej_basin_lake_count": "2,292 glacial lakes mapped in the Sutlej basin alone, spanning Himachal Pradesh and Jammu & Kashmir (The News Himachal, Aug 2026)"
+  },
+  "sites": [
+    {
+      "id": "gepang-gath",
+      "name": "Gepang Gath Lake",
+      "also_known_as": ["Ghepan Lake", "Ghepan Ka Alyas"],
+      "state": "Himachal Pradesh",
+      "district": "Lahaul and Spiti",
+      "river_basin": "Chandra (Chenab basin)",
+      "latitude": 32.5,
+      "longitude": 77.22,
+      "elevation_m": 4098,
+      "status": "active_watch",
+      "static_risk_classification": "Highly vulnerable / rapidly expanding (NRSC assessment)",
+      "static_risk_factors": [
+        "Lake area grew 176% in 33 years: 36.49 ha (1989) -> 101.30 ha (2022), one of the fastest-growing lakes in the region",
+        "Parent glacier (Gepang Gath Glacier) in sustained negative mass balance: -0.90 m water-equivalent/year, 2015-2023",
+        "Parent glacier has retreated ~2.76 km since 1962, current retreat rate ~53 m/year",
+        "Moraine-dammed lake; NRSC and Journal of Geophysical Research: Earth Surface (Sattar et al., 2023) studies have modeled artificial lake-level lowering as a mitigation option, indicating the dam is not considered self-stabilizing"
+      ],
+      "downstream_exposure": "Worst-case modeling: floodwaters could reach Sissu village in ~21 minutes of a breach, at speeds up to 43 km/h and depths up to 20 m. Threatens 34 settlements, ~204 ha of cultivable land, 57 bridges, 106 km of road, the Manali-Leh National Highway, and the Atal Tunnel approach.",
+      "sources": [
+        "Down To Earth, 'How big a threat is the expanding Ghepan Lake above Sissu village in Himachal Pradesh' (2026)",
+        "Deccan Herald, 'Himachal Pradesh's Sissu sits on time bomb as expanding glacial lake threatens 34 settlements' (2026)",
+        "Sattar et al., 'Modeling Potential Glacial Lake Outburst Flood Process Chains and Effects From Artificial Lake-Level Lowering at Gepang Gath Lake, Indian Himalaya', JGR: Earth Surface (2023)"
+      ]
+    },
+    {
+      "id": "samudra-tapu",
+      "name": "Samudra Tapu Glacial Lake",
+      "also_known_as": [],
+      "state": "Himachal Pradesh",
+      "district": "Lahaul and Spiti",
+      "river_basin": "Chandra (Chenab basin)",
+      "latitude": 32.48,
+      "longitude": 77.5,
+      "elevation_m": 4300,
+      "status": "active_watch",
+      "static_risk_classification": "NRSC has published a formal GLOF Risk Assessment report on this lake; it is monitored due to sustained rapid expansion.",
+      "static_risk_factors": [
+        "Proglacial lake fed by Samudra Tapu Glacier, the second-largest glacier in the upper Chandra basin",
+        "1971-2014: lake expanded 1,889 m linearly and ~1 km^2 in area",
+        "Over the same period, lake volume grew roughly 20-fold: from ~3.4 million m^3 to ~67.7 million m^3",
+        "Continued feeder-glacier melt identified in the literature as the primary driver of the volume increase"
+      ],
+      "downstream_exposure": "Located in the upper Chandra basin, Lahaul and Spiti - downstream communities and infrastructure along the Chandra/Chenab basin are exposed; precise inundation modeling is in NRSC's formal risk assessment report, not reproduced here.",
+      "sources": [
+        "Kulkarni & Dhar, 'Recession of Samudra Tapu glacier, Chandra River basin, Himachal Pradesh'",
+        "NRSC, 'GLOF Risk Assessment of Samudra Tapu Glacial Lake' (Bhuvan NHP-FS report repository)"
+      ]
+    },
+    {
+      "id": "south-lhonak",
+      "name": "South Lhonak Lake",
+      "also_known_as": [],
+      "state": "Sikkim",
+      "district": "North Sikkim",
+      "river_basin": "Teesta",
+      "latitude": 27.9475,
+      "longitude": 88.3315,
+      "elevation_m": 5200,
+      "status": "historical_case_study",
+      "static_risk_classification": "GLOF occurred 4 October 2023 - included here as the region's canonical case study, not an active site",
+      "static_risk_factors": [
+        "Had been formally identified as one of Sikkim's 14 potentially dangerous glacial lakes since at least 2019, before it breached",
+        "An early-warning system had been installed but was non-operational due to extreme weather at the exact moment the lake failed",
+        "Failure mechanism: a 14.7 million m3 landslide from the lake's lateral moraine plunged into the lake, generating a ~20 m tsunami wave that overtopped and breached the frontal moraine, releasing ~50 million m3 of water down the Teesta valley",
+        "Flood traveled 50 km downstream, killed 42 people, left 70+ missing, destroyed 30+ bridges across four Sikkim districts, and destroyed the Teesta III hydropower dam"
+      ],
+      "downstream_exposure": "Already realized in 2023 - included as a reference case for calibrating this tool's risk criteria and as a reminder that a known, documented hazard with a partially built early-warning system still resulted in major loss of life when the EWS lost power at a critical moment.",
+      "sources": [
+        "Down To Earth, 'The 2023 Sikkim disaster exposes growing risk of GLOFs in a warming Himalaya'",
+        "Science, 'The Sikkim flood of October 2023: Drivers, causes, and impacts of a multihazard cascade' (2024)",
+        "Wikipedia, 'South Lhonak Lake' (coordinates, lake specifications)"
+      ]
+    },
+    {
+      "id": "chorabari",
+      "name": "Chorabari Lake (Gandhi Sarovar)",
+      "also_known_as": ["Gandhi Sarovar"],
+      "state": "Uttarakhand",
+      "district": "Rudraprayag",
+      "river_basin": "Mandakini",
+      "latitude": 30.7475,
+      "longitude": 79.0608,
+      "elevation_m": 3900,
+      "status": "historical_case_study",
+      "static_risk_classification": "Moraine breached 17 June 2013 - lake did not reform (moraine largely washed away). Included only as the reference case used to calibrate this tool's extreme-rainfall trigger threshold, not as an active site.",
+      "static_risk_factors": [
+        "17 June 2013: more than 315 mm of rainfall in the surrounding catchment combined with rapid glacier melt raised lake levels until the moraine dam failed",
+        "The lake drained completely in 5-10 minutes once the breach began, sending a debris- and boulder-laden surge down the Mandakini valley into Kedarnath town",
+        "One of the deadliest disasters in Uttarakhand's history; thousands of pilgrims and residents were killed"
+      ],
+      "downstream_exposure": "Already realized in 2013. Retained in this watchlist specifically because its documented rainfall trigger (>315 mm in a short window, combined with rapid melt) is the single most concrete, citable precipitation threshold available for calibrating this tool's heavy-rainfall flag - see glacierwatch/tools/weather.py.",
+      "sources": [
+        "Wikipedia, 'Chorabari Lake' and '2013 North India floods'",
+        "Manchalamushafir, 'Chorabari Lake Kedarnath (Gandhi Sarovar) - Trek & History'"
+      ]
+    }
+  ]
+}
