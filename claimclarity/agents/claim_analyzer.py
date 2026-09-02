@@ -18,6 +18,10 @@ Rules:
 number, code, or dollar amount that isn't present in the text.
 - Capture every denied line item separately, with its own procedure code, \
 diagnosis code as billed, denial reason text, and CARC/RARC codes if stated.
+- Extract the patient's US state as a two-letter USPS abbreviation (e.g. \
+"CA") if it's determinable from the documents (e.g. from a mailing \
+address) - this is used only to point to the right state's external review \
+process later, so leave it blank rather than guessing if you can't tell.
 - Normalize dates to YYYY-MM-DD when you can determine the actual calendar \
 date; otherwise leave the field as the document states it.
 - Pull the specific plan terms relevant to the denied services into \

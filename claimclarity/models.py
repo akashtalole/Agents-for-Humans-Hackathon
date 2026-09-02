@@ -34,6 +34,12 @@ class ClaimRecord(BaseModel):
         default="", description="Deadline to file an appeal, normalized to YYYY-MM-DD if determinable"
     )
     appeal_submission_method: str = Field(default="", description="Address/portal/fax for filing an appeal")
+    state: str = Field(
+        default="",
+        description="Patient's US state, normalized to a two-letter USPS abbreviation (e.g. 'CA') if "
+        "determinable from the documents - used only to point to the right state's external review/DOI "
+        "process, never guessed",
+    )
     line_items: list[ClaimLineItem] = Field(default_factory=list)
     relevant_plan_terms: list[str] = Field(
         default_factory=list, description="Excerpts from the plan's summary of benefits relevant to the denied services"
@@ -80,3 +86,64 @@ class AppealPackage(BaseModel):
     open_questions: list[str] = Field(
         default_factory=list, description="Decisions only the patient can make, e.g. whether to still appeal a long shot"
     )
+
+
+class StateDOIInfo(BaseModel):
+    """State Department of Insurance / external review reference data, loaded
+    from data/state_doi_reference.json - never model-generated, so it can
+    never invent a citation, deadline, or contact detail."""
+
+    state_code: str = Field(description="Two-letter USPS abbreviation, or 'DEFAULT' for the federal fallback")
+    state_name: str
+    doi_name: str = Field(description="The regulator(s) that handle insurance complaints for this state")
+    doi_complaint_process: str = Field(description="Plain-language summary of how to file a DOI complaint")
+    external_review_process: str = Field(description="Plain-language summary of the independent external review process")
+    external_review_deadline_window: str = Field(
+        description="The typical deadline window to request external review, in words - not a fabricated exact date"
+    )
+    doi_contact_instruction: str = Field(
+        description="Where to find current, official contact info - a search term or stable directory URL, never a "
+        "specific phone number, which cannot be verified offline and goes stale"
+    )
+    regulatory_note: str = Field(
+        default="", description="Plain-language description of the legal framework - never a fabricated statute citation"
+    )
+
+
+class EscalationPackage(BaseModel):
+    """What to do after the internal appeal: independent External Review, and,
+    only where the findings actually support it, a state DOI complaint about
+    how the claim was handled. Not legal advice - see
+    agents/escalation_advisor.py's system prompt for the evidence discipline
+    this model is meant to enforce."""
+
+    eligible_for_external_review: bool = Field(
+        description="True when at least one denied line item was found worth appealing and the internal appeal "
+        "doesn't fully resolve the denial - i.e. there is a genuine unresolved dispute to escalate"
+    )
+    external_review_deadline: str | None = Field(
+        default=None,
+        description="Deadline to request independent external review, normalized to YYYY-MM-DD only if an actual "
+        "date can be derived from the dates given; otherwise a plain-language description of the deadline window "
+        "(e.g. 'within 4 months of the internal appeal decision'). Never a fabricated exact date.",
+    )
+    external_review_request_letter: str = Field(
+        default="",
+        description="Drafted, ready-to-send letter requesting independent external review, referencing the "
+        "specific denied line items and the prior internal appeal. Empty if not eligible.",
+    )
+    state_doi_complaint_letter: str | None = Field(
+        default=None,
+        description="Drafted only when the findings show a genuine process failure (e.g. a billing error or "
+        "documentation gap the insurer should have caught) - never filed reflexively for a valid denial. Null "
+        "when there is no such basis.",
+    )
+    regulatory_basis: list[str] = Field(
+        default_factory=list,
+        description="Plain-language citations for the rights described, grounded in the provided reference data - "
+        "never a fabricated citation",
+    )
+    escalation_checklist: list[str] = Field(
+        default_factory=list, description="Concrete, ordered next steps the patient can actually follow"
+    )
+    rationale: str = Field(description="Plain-language explanation of the recommendation, for a stressed patient")

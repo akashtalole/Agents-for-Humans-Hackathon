@@ -15,6 +15,7 @@ from claimclarity.models import (
     ClaimLineItem,
     ClaimRecord,
     DenialFindings,
+    EscalationPackage,
     LineItemFinding,
 )
 from claimclarity.orchestrator import ClaimCase, build_orchestrator
@@ -75,10 +76,25 @@ def _fake_appeal() -> AppealPackage:
     )
 
 
+def _fake_escalation() -> EscalationPackage:
+    return EscalationPackage(
+        eligible_for_external_review=True,
+        external_review_deadline="2027-04-28",
+        external_review_request_letter="Dear Heartland Mutual External Review Coordinator, ...",
+        state_doi_complaint_letter=None,
+        regulatory_basis=["General ACA external review framework (45 CFR 147.136)."],
+        escalation_checklist=["Gather your internal appeal denial letter.", "Submit the external review request."],
+        rationale="97110 was denied for a mechanical coding reason and is still worth escalating if the internal appeal doesn't fix it.",
+    )
+
+
 def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
     monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
     monkeypatch.setattr(orchestrator_module, "draft_appeal", lambda claim, findings: _fake_appeal())
+    monkeypatch.setattr(
+        orchestrator_module, "prepare_escalation", lambda claim, findings, appeal, doi_info: _fake_escalation()
+    )
 
     case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
     orchestrator = build_orchestrator(case)
@@ -88,6 +104,9 @@ def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypa
     assert "saved" in _tool_text(orchestrator.tool.create_appeal_deadline_reminder_tool()).lower()
     assert "1 of 2" in _tool_text(orchestrator.tool.investigate_denial_tool())
     assert "appeal_package.md" in _tool_text(orchestrator.tool.draft_appeal_package())
+    escalation_result = _tool_text(orchestrator.tool.prepare_external_review_escalation())
+    assert "escalation_package.md" in escalation_result
+    assert "recommended" in escalation_result
 
     for filename in (
         "claim_summary.md",
@@ -95,16 +114,25 @@ def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypa
         "decisions_needed.md",
         "appeal_package.md",
         "appeal_deadline.ics",
+        "escalation_package.md",
+        "external_review_deadline.ics",
     ):
         assert (tmp_path / filename).exists(), f"{filename} was not written"
 
     assert case.claim.claim_number == "CLM-2026-0619884"
     assert len(case.findings.findings) == 2
     assert case.appeal.appeal_letter.startswith("Dear Heartland Mutual")
+    assert case.escalation.eligible_for_external_review is True
 
     decisions = (tmp_path / "decisions_needed.md").read_text()
     assert "1 item(s) look worth appealing" in decisions
     assert "Do not appeal - genuine plan exclusion." in decisions
+    assert "escalation_package.md" in decisions
+
+    escalation_md = (tmp_path / "escalation_package.md").read_text()
+    assert "External Review Request Letter" in escalation_md
+    assert "Dear Heartland Mutual External Review Coordinator" in escalation_md
+    assert "Not drafted" in escalation_md  # no DOI complaint basis in the fake findings
 
 
 def test_extract_before_load_returns_error_not_exception(tmp_path: Path):
@@ -139,6 +167,53 @@ def test_draft_appeal_before_investigate_returns_error(tmp_path: Path, monkeypat
     orchestrator.tool.extract_claim_details()
     result = orchestrator.tool.draft_appeal_package()
     assert "Error" in _tool_text(result)
+
+
+def test_escalation_before_draft_appeal_returns_error_not_exception(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+    result = orchestrator.tool.prepare_external_review_escalation()
+    assert "Error" in _tool_text(result)
+    assert "draft_appeal_package" in _tool_text(result)
+    assert not (tmp_path / "escalation_package.md").exists()
+
+
+def test_escalation_falls_back_to_default_doi_when_state_not_extracted(tmp_path: Path, monkeypatch):
+    """ClaimRecord.state is often blank (the analyzer can't always tell the
+    patient's state from the documents) - the escalation step must still run
+    cleanly against the federal DEFAULT entry rather than crashing."""
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+    monkeypatch.setattr(orchestrator_module, "draft_appeal", lambda claim, findings: _fake_appeal())
+
+    seen_doi_info = {}
+
+    def fake_prepare_escalation(claim, findings, appeal, doi_info):
+        seen_doi_info["value"] = doi_info
+        return _fake_escalation()
+
+    monkeypatch.setattr(orchestrator_module, "prepare_escalation", fake_prepare_escalation)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    assert case.claim is None
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    assert case.claim.state == ""  # _fake_claim() never sets it
+    orchestrator.tool.investigate_denial_tool()
+    orchestrator.tool.draft_appeal_package()
+    result = orchestrator.tool.prepare_external_review_escalation()
+
+    assert "escalation_package.md" in _tool_text(result)
+    assert seen_doi_info["value"].state_code == "DEFAULT"
+    assert (tmp_path / "escalation_package.md").exists()
+    assert (tmp_path / "external_review_deadline.ics").exists()
 
 
 def test_decisions_needed_when_nothing_worth_appealing(tmp_path: Path, monkeypatch):

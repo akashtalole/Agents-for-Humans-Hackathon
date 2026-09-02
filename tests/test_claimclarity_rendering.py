@@ -4,12 +4,14 @@ from claimclarity.models import (
     ClaimLineItem,
     ClaimRecord,
     DenialFindings,
+    EscalationPackage,
     LineItemFinding,
 )
 from claimclarity.rendering import (
     render_appeal_md,
     render_claim_summary_md,
     render_decision_summary_md,
+    render_escalation_md,
     render_findings_md,
 )
 
@@ -111,3 +113,45 @@ def test_render_decision_summary_with_mixed_findings():
 def test_render_decision_summary_before_analysis():
     md = render_decision_summary_md(None, None)
     assert "not been analyzed" in md.lower()
+
+
+def test_render_decision_summary_without_escalation_is_unaffected():
+    findings = DenialFindings(overall_recommendation="Appeal line 1.")
+    md = render_decision_summary_md(CLAIM, findings)
+    assert "escalation_package.md" not in md
+
+
+def test_render_decision_summary_mentions_escalation_when_eligible():
+    findings = DenialFindings(overall_recommendation="Appeal line 1.")
+    escalation = EscalationPackage(eligible_for_external_review=True, rationale="Still unresolved.")
+    md = render_decision_summary_md(CLAIM, findings, escalation)
+    assert "escalation_package.md" in md
+    assert "External Review" in md
+
+
+def test_render_escalation_md_eligible_case():
+    package = EscalationPackage(
+        eligible_for_external_review=True,
+        external_review_deadline="2027-04-28",
+        external_review_request_letter="Dear External Review Coordinator, ...",
+        state_doi_complaint_letter=None,
+        regulatory_basis=["General ACA external review framework (45 CFR 147.136)."],
+        escalation_checklist=["Gather your internal appeal denial letter."],
+        rationale="97110 is still worth escalating if the internal appeal fails.",
+    )
+    md = render_escalation_md(package)
+    assert "grounds to request an independent External Review" in md
+    assert "2027-04-28" in md
+    assert "Dear External Review Coordinator" in md
+    assert "45 CFR 147.136" in md
+    assert "Not drafted" in md  # no DOI complaint letter
+
+
+def test_render_escalation_md_not_eligible_case():
+    package = EscalationPackage(
+        eligible_for_external_review=False,
+        rationale="Every item was a genuine plan exclusion, so there is nothing left to escalate.",
+    )
+    md = render_escalation_md(package)
+    assert "not recommended" in md
+    assert "genuine plan exclusion" in md
