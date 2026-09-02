@@ -53,6 +53,43 @@ Try it against the included example (a municipal landscaping RFP with a
 deliberately underinsured example company, so the compliance check has
 something real to catch) — see **Quickstart** below.
 
+## Teaming partner gap-fill advisor
+
+A small business frequently can't meet every RFP requirement alone — a
+missing certification, insufficient bonding or insurance capacity, no past
+performance in the specific NAICS code, no clearance — and the common outcome
+isn't teaming with a subcontractor or joint-venture partner who could fill
+exactly that gap, it's simply losing the bid. Owners without a contracts team
+rarely have the time to figure out what to search for or how to make the
+pitch, so bids that were genuinely winnable get abandoned instead.
+
+Right after the compliance check, BidWright looks at every gap it found and,
+for each one that's plausibly fillable by bringing in an outside partner (as
+opposed to a gap the company can just fix itself this week, like raising an
+insurance limit), writes a recommendation to `teaming_plan.md`:
+
+- The specific capability a partner would need to bring.
+- Concrete, actionable search guidance — SAM.gov's Subcontracting Network
+  (SubNet), the awarding agency's small business liaison, a local PTAC/APEX
+  Accelerator, or a named trade association for the trade or NAICS code —
+  never a vague "find a partner."
+- A ready-to-send draft outreach email pitching the specific arrangement.
+- A teaming risk to verify: many solicitations cap the percentage of work
+  that may be subcontracted, or require the prime to self-perform a minimum
+  percentage — BidWright flags this as something to check against the RFP's
+  actual limit rather than guessing one.
+
+BidWright never invents a specific company as a prospective partner — it has
+no partner directory, so it gives search guidance, not fabricated leads — and
+it never claims a gap is fillable by teaming when it plainly isn't (a
+security clearance the RFP requires the *prime* itself to hold, for example,
+can't be borrowed from a subcontractor). If none of the gaps found are
+teaming-fillable, or there were no gaps at all, `teaming_plan.md` still gets
+written and says so plainly instead of being skipped or padded with filler.
+When a teaming plan does have recommendations, the drafted proposal's open
+questions point to it, so the decision to team never gets buried in a
+different file than the rest of what needs the owner's attention.
+
 ## Amendment / addendum impact analysis
 
 Government and commercial RFPs routinely get amended after they're first
@@ -112,16 +149,19 @@ flowchart TD
     O -->|tool call| L[load_rfp_and_profile]
     O -->|tool call| A["extract_rfp_requirements\n→ RFP Analyzer Agent"]
     O -->|tool call| C["check_company_compliance\n→ Compliance Checker Agent"]
+    O -->|tool call| T["draft_teaming_plan_tool\n→ Teaming Advisor Agent"]
     O -->|tool call| R[create_submission_deadline_reminder]
     O -->|tool call| M["analyze_rfp_amendment (optional)\n→ Amendment Analyzer Agent"]
     O -->|tool call| P["draft_proposal_document\n→ Proposal Drafter Agent"]
 
     A -->|RFPRequirements| J[(Shared BidJob state)]
     C -->|ComplianceReport| J
+    T -->|TeamingPlan| J
     M -->|AmendmentImpact| J
     P -->|ProposalDraft| J
     J --> A
     J --> C
+    J --> T
     J --> M
     J --> P
 
@@ -131,6 +171,7 @@ flowchart TD
     J --> F4[proposal_draft.md]
     J --> F5[submission_deadline.ics]
     J --> F6["amendment_impact.md (if --amendment given)"]
+    J --> F7[teaming_plan.md]
 
     O -->|plain-English summary| U
     F3 -->|only the blocking items| U
@@ -169,8 +210,8 @@ bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.js
 
 This streams each tool call as it happens, then prints a summary and writes
 `requirements.md`, `compliance_report.md`, `decisions_needed.md`,
-`proposal_draft.md`, and `submission_deadline.ics` to `output/` (plus
-`amendment_impact.md` if `--amendment` was given).
+`teaming_plan.md`, `proposal_draft.md`, and `submission_deadline.ics` to
+`output/` (plus `amendment_impact.md` if `--amendment` was given).
 
 Or run the Streamlit demo:
 
@@ -198,6 +239,7 @@ bidwright/
     rfp_analyzer.py           Sub-agent: RFP text -> RFPRequirements
     compliance_checker.py     Sub-agent: RFPRequirements + profile -> ComplianceReport
     amendment_analyzer.py     Sub-agent: RFPRequirements + amendment text -> AmendmentImpact
+    teaming_advisor.py        Sub-agent: RFPRequirements + ComplianceReport -> TeamingPlan
     proposal_drafter.py       Sub-agent: -> ProposalDraft
   orchestrator.py             Orchestrator Agent (agents-as-tools) + shared BidJob state
   pipeline.py                 run_bid_job() convenience wrapper used by CLI/UI/AgentCore

@@ -130,6 +130,50 @@ class AmendmentImpact(BaseModel):
     )
 
 
+class TeamingRecommendation(BaseModel):
+    """A single suggested teaming/subcontracting arrangement that would close
+    one compliance gap the company can't plausibly close alone."""
+
+    gap: ComplianceGap = Field(description="The specific compliance gap this recommendation addresses")
+    capability_needed: str = Field(
+        description="The specific capability, certification, or capacity a teaming partner "
+        "would need to bring, e.g. 'Active 8(a) certification' or 'Bonding capacity for a "
+        "$500,000 performance bond'"
+    )
+    partner_search_guidance: str = Field(
+        description="Concrete, actionable places and search terms to find a real partner - "
+        "e.g. SAM.gov's Subcontracting Network (SubNet), the SBA's SBIR/STTR partner "
+        "directories, the relevant local PTAC/APEX Accelerator, a named trade association for "
+        "this trade/NAICS code, or the awarding agency's small business liaison office. Never a "
+        "vague instruction like 'find a partner' - always something the owner could act on this week."
+    )
+    outreach_email_draft: str = Field(
+        description="A ready-to-send email a business owner could send with light edits to a "
+        "prospective teaming partner, pitching the specific arrangement and what this company "
+        "brings to it"
+    )
+    teaming_risk_note: str = Field(
+        description="A risk to verify before relying on this arrangement - e.g. many "
+        "solicitations cap the percentage of work that may be subcontracted, or require the "
+        "prime to self-perform a minimum percentage. Flag this as something to check against "
+        "the RFP's actual limit if it isn't stated in the extracted requirements."
+    )
+
+
+class TeamingPlan(BaseModel):
+    """Teaming/subcontracting recommendations for the compliance gaps that are
+    plausibly fillable that way, rather than gaps the company should simply
+    fix itself."""
+
+    recommendations: list[TeamingRecommendation] = Field(default_factory=list)
+    summary: str = Field(
+        description="2-4 plain-language sentences for a busy owner: how many gaps could be "
+        "filled by teaming, and the single most important next step. If no gaps are "
+        "teaming-fillable, say so plainly and explain why (e.g. the gaps are all easy in-house "
+        "fixes, or the remaining gap requires something only the prime itself can hold)."
+    )
+
+
 class ProposalDraft(BaseModel):
     cover_letter: str
     executive_summary: str

@@ -7,8 +7,9 @@ from bidwright.orchestrator import BidJob, build_orchestrator
 
 TASK_PROMPT = (
     "Process this RFP end to end: load it and the company profile, extract "
-    "requirements, check compliance, create a deadline reminder, and draft the "
-    "proposal. Then give me the final summary."
+    "requirements, check compliance, draft a teaming plan for any gaps that "
+    "could be closed by partnering with a subcontractor, create a deadline "
+    "reminder, and draft the proposal. Then give me the final summary."
 )
 
 

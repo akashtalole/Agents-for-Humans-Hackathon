@@ -7,7 +7,13 @@ faithfully restate its own output.
 """
 from __future__ import annotations
 
-from bidwright.models import AmendmentImpact, ComplianceReport, ProposalDraft, RFPRequirements
+from bidwright.models import (
+    AmendmentImpact,
+    ComplianceReport,
+    ProposalDraft,
+    RFPRequirements,
+    TeamingPlan,
+)
 
 
 def _bullets(items: list[str]) -> str:
@@ -150,6 +156,38 @@ def render_amendment_impact_md(impact: AmendmentImpact) -> str:
 
 ## Recommendation
 {impact.recommendation}
+"""
+
+
+def render_teaming_plan_md(plan: TeamingPlan) -> str:
+    def recommendation_block(rec) -> str:
+        return f"""### [{rec.gap.severity.value.upper()}] {rec.gap.requirement}
+
+**Capability needed:** {rec.capability_needed}
+
+**Where to look:**
+{rec.partner_search_guidance}
+
+**Draft outreach email:**
+```
+{rec.outreach_email_draft}
+```
+
+**Teaming risk to verify:** {rec.teaming_risk_note}
+"""
+
+    recommendations_md = (
+        "\n".join(recommendation_block(r) for r in plan.recommendations)
+        or "_No compliance gaps in this run were plausibly fillable through teaming._"
+    )
+
+    return f"""# Teaming Partner Gap-Fill Plan
+
+## Summary
+{plan.summary}
+
+## Recommendations
+{recommendations_md}
 """
 
 

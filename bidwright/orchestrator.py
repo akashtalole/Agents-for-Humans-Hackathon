@@ -23,14 +23,22 @@ from bidwright.agents.amendment_analyzer import analyze_amendment
 from bidwright.agents.compliance_checker import check_compliance
 from bidwright.agents.proposal_drafter import draft_proposal
 from bidwright.agents.rfp_analyzer import analyze_rfp
+from bidwright.agents.teaming_advisor import draft_teaming_plan
 from bidwright.config import create_agent
-from bidwright.models import AmendmentImpact, ComplianceReport, ProposalDraft, RFPRequirements
+from bidwright.models import (
+    AmendmentImpact,
+    ComplianceReport,
+    ProposalDraft,
+    RFPRequirements,
+    TeamingPlan,
+)
 from bidwright.rendering import (
     render_amendment_impact_md,
     render_compliance_md,
     render_decision_summary_md,
     render_proposal_md,
     render_requirements_md,
+    render_teaming_plan_md,
 )
 from bidwright.tools.calendar import create_deadline_reminder
 from bidwright.tools.documents import read_document, save_text_file
@@ -45,11 +53,18 @@ For every job, always run the full pipeline in this order:
 1. load_rfp_and_profile
 2. extract_rfp_requirements
 3. check_company_compliance
-4. create_submission_deadline_reminder
-5. analyze_rfp_amendment
-6. draft_proposal_document
+4. draft_teaming_plan_tool
+5. create_submission_deadline_reminder
+6. analyze_rfp_amendment
+7. draft_proposal_document
 
-Step 5 only matters when an amendment/addendum document was provided for \
+Step 4 looks at whatever compliance gaps step 3 found and recommends where \
+teaming with a subcontractor or joint-venture partner could close the ones \
+this company can't plausibly fix alone - always call it right after the \
+compliance check, even if there are zero gaps (it still reports that cleanly, \
+that is not a failure).
+
+Step 6 only matters when an amendment/addendum document was provided for \
 this job - always call it anyway, right after the compliance check and before \
 drafting the proposal, so a changed requirement can't slip into a stale \
 proposal draft. If it reports back that no amendment is configured, that is \
@@ -88,6 +103,7 @@ class BidJob:
     requirements: RFPRequirements | None = None
     compliance: ComplianceReport | None = None
     amendment_impact: AmendmentImpact | None = None
+    teaming_plan: TeamingPlan | None = None
     proposal: ProposalDraft | None = None
     activity_log: list[str] = field(default_factory=list)
 
@@ -156,6 +172,34 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def draft_teaming_plan_tool() -> str:
+        """Look at the compliance gaps found by check_company_compliance and
+        recommend, for each gap that is plausibly fillable this way, teaming
+        with a subcontractor or joint-venture partner instead of the company
+        abandoning a bid it can't fully meet alone: concrete search guidance
+        (SAM.gov SubNet, PTAC/APEX centers, trade associations - never a
+        fabricated company name), a draft outreach email, and the
+        subcontracting-limit risk to verify against the RFP. Must be called
+        after check_company_compliance. If there are zero compliance gaps,
+        it still succeeds and reports that plainly - that is not an error."""
+        if job.compliance is None:
+            return "Error: call check_company_compliance first."
+        if not job.compliance.gaps:
+            job.teaming_plan = TeamingPlan(
+                recommendations=[],
+                summary="No compliance gaps were found in this run, so there is nothing to team on.",
+            )
+        else:
+            job.teaming_plan = draft_teaming_plan(job.requirements, job.compliance, job.profile_text)
+        save_text_file(str(out_dir / "teaming_plan.md"), render_teaming_plan_md(job.teaming_plan))
+        msg = (
+            f"Teaming plan complete. {len(job.teaming_plan.recommendations)} gap(s) have a "
+            "teaming recommendation. Full details saved to teaming_plan.md."
+        )
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
     def analyze_rfp_amendment() -> str:
         """Diff a newly issued RFP amendment/addendum against the already
         extracted requirements and (if available) the prior compliance
@@ -200,6 +244,15 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
         if job.requirements is None or job.compliance is None:
             return "Error: call extract_rfp_requirements and check_company_compliance first."
         job.proposal = draft_proposal(job.requirements, job.profile_text, job.compliance)
+        if job.teaming_plan is not None and job.teaming_plan.recommendations:
+            # Appended in code, not by re-prompting the drafter, so this pointer
+            # is guaranteed present whenever a teaming plan exists rather than
+            # depending on the drafter agent to remember to mention it.
+            job.proposal.open_questions.append(
+                "Some open compliance gaps may be fillable by teaming with a subcontractor "
+                "or joint-venture partner instead of fixing them in-house - see "
+                "teaming_plan.md for search guidance and a draft outreach email."
+            )
         save_text_file(str(out_dir / "proposal_draft.md"), render_proposal_md(job.proposal))
         msg = (
             "Draft proposal written to proposal_draft.md. "
@@ -230,6 +283,7 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             load_rfp_and_profile,
             extract_rfp_requirements,
             check_company_compliance,
+            draft_teaming_plan_tool,
             create_submission_deadline_reminder,
             analyze_rfp_amendment,
             draft_proposal_document,
