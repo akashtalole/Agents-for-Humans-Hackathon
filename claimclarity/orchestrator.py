@@ -16,16 +16,19 @@ from strands import Agent, tool
 from claimclarity.agents.appeal_drafter import draft_appeal
 from claimclarity.agents.claim_analyzer import analyze_claim
 from claimclarity.agents.denial_investigator import investigate_denial
+from claimclarity.agents.escalation_advisor import prepare_escalation
 from claimclarity.config import create_agent
-from claimclarity.models import AppealPackage, ClaimRecord, DenialFindings
+from claimclarity.models import AppealPackage, ClaimRecord, DenialFindings, EscalationPackage
 from claimclarity.rendering import (
     render_appeal_md,
     render_claim_summary_md,
     render_decision_summary_md,
+    render_escalation_md,
     render_findings_md,
 )
-from claimclarity.tools.calendar import create_appeal_deadline_reminder
+from claimclarity.tools.calendar import create_appeal_deadline_reminder, create_external_review_deadline_reminder
 from claimclarity.tools.documents import read_document, save_text_file
+from claimclarity.tools.state_doi import lookup_state_doi_process
 
 ORCHESTRATOR_PROMPT = """\
 You are ClaimClarity, an assistant that takes a patient from "I got a \
@@ -38,6 +41,7 @@ For every case, always run the full pipeline in this order:
 3. create_appeal_deadline_reminder
 4. investigate_denial
 5. draft_appeal_package
+6. prepare_external_review_escalation
 
 Then write a final answer for a patient who is stressed and has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual claim \
@@ -51,6 +55,10 @@ only, e.g. "2 of 3 items look worth appealing").
 - A direct pointer to decisions_needed.md as the place to read exactly which \
 items are worth appealing and why, and which aren't - do not enumerate them \
 yourself.
+- One line noting that decisions_needed.md and escalation_package.md also \
+cover what to do if the internal appeal doesn't fully resolve this - \
+independent external review, and possibly a state Department of Insurance \
+complaint - without inventing any specifics yourself.
 - Where to find the full claim summary, findings, and appeal letter files.
 
 Never claim a diagnosis code is valid or invalid without the investigation \
@@ -70,6 +78,7 @@ class ClaimCase:
     claim: ClaimRecord | None = None
     findings: DenialFindings | None = None
     appeal: AppealPackage | None = None
+    escalation: EscalationPackage | None = None
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -165,6 +174,41 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         case.activity_log.append(msg)
         return msg
 
+    @tool
+    def prepare_external_review_escalation() -> str:
+        """Determine whether this denial is worth escalating past the internal
+        appeal - to an independent External Review and, where the findings
+        actually show a process failure, a state Department of Insurance
+        complaint - and draft the request letter(s). This is always the final
+        pipeline step; call it after draft_appeal_package."""
+        if case.claim is None or case.findings is None or case.appeal is None:
+            return "Error: call extract_claim_details, investigate_denial_tool, and draft_appeal_package first."
+        # A patient's state not being extractable (or not being in the bundled
+        # sample) still has an applicable framework - lookup_state_doi_process
+        # falls back to the federal DEFAULT entry rather than erroring, so this
+        # step runs unconditionally like every other pipeline step.
+        doi_info = lookup_state_doi_process(case.claim.state)
+        case.escalation = prepare_escalation(case.claim, case.findings, case.appeal, doi_info)
+        save_text_file(str(out_dir / "escalation_package.md"), render_escalation_md(case.escalation))
+        save_text_file(
+            str(out_dir / "decisions_needed.md"),
+            render_decision_summary_md(case.claim, case.findings, case.escalation),
+        )
+        ics_message = create_external_review_deadline_reminder(
+            path=str(out_dir / "external_review_deadline.ics"),
+            title=f"File external review: {case.claim.insurer_name or 'insurer'} "
+            f"claim {case.claim.claim_number or ''}".strip(),
+            deadline_iso=case.escalation.external_review_deadline or "",
+            description=f"State DOI: {doi_info.doi_name}. {doi_info.doi_contact_instruction}",
+        )
+        recommended = "recommended" if case.escalation.eligible_for_external_review else "not recommended"
+        msg = (
+            f"Escalation package written to escalation_package.md (external review {recommended}). "
+            f"{ics_message}"
+        )
+        case.activity_log.append(msg)
+        return msg
+
     agent_kwargs = dict(
         system_prompt=ORCHESTRATOR_PROMPT,
         tools=[
@@ -173,6 +217,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             create_appeal_deadline_reminder_tool,
             investigate_denial_tool,
             draft_appeal_package,
+            prepare_external_review_escalation,
         ],
     )
     # Always pass callback_handler explicitly, even when it's None: Strands'

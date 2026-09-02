@@ -52,9 +52,19 @@ and a medical record excerpt), ClaimClarity:
    supports coverage — and writes an honest plain-language explanation for
    anything that isn't worth appealing, instead of drafting a doomed letter
    just to be agreeable.
-6. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
-   what's worth appealing, what isn't and why, and the deadline. Everything
-   else runs unattended.
+6. **Prepares the next step almost nobody knows they have**: if the internal
+   appeal doesn't fully resolve the denial, most patients have a legal right
+   to an independent **External Review** by a third party outside the
+   insurer — and, separately, to file a complaint with their state
+   **Department of Insurance (DOI)** if the insurer mishandled the claims
+   process. ClaimClarity drafts the external review request letter, adds a
+   second `.ics` reminder for that (often 4-month) deadline, and — only when
+   the investigation actually found a process failure, never reflexively —
+   drafts a DOI complaint letter too. See **External Review & Regulatory
+   Escalation** below.
+7. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
+   what's worth appealing, what isn't and why, the deadline, and a pointer to
+   the escalation package. Everything else runs unattended.
 
 Try it against the included example: a physical therapy claim billed with a
 diagnosis code that was deprecated for billing purposes in FY2022 (a real,
@@ -79,22 +89,29 @@ flowchart TD
     O -->|tool call| R[create_appeal_deadline_reminder]
     O -->|tool call| I["investigate_denial\n→ Denial Investigator Agent"]
     O -->|tool call| P["draft_appeal_package\n→ Appeal Drafter Agent"]
+    O -->|tool call| E["prepare_external_review_escalation\n→ Escalation Advisor Agent"]
 
     I -->|calls| ICD["lookup_icd10_code /\nsearch_icd10_codes"]
     ICD -->|real code validity,\nnot a guess| I
 
+    E -->|reads| DOI[(state_doi_reference.json)]
+
     A -->|ClaimRecord| J[(Shared ClaimCase state)]
     I -->|DenialFindings| J
     P -->|AppealPackage| J
+    E -->|EscalationPackage| J
     J --> A
     J --> I
     J --> P
+    J --> E
 
     J --> F1[claim_summary.md]
     J --> F2[denial_findings.md]
     J --> F3[decisions_needed.md]
     J --> F4[appeal_package.md]
     J --> F5[appeal_deadline.ics]
+    J --> F6[escalation_package.md]
+    J --> F7[external_review_deadline.ics]
 
     O -->|plain-English summary| U
     F3 -->|only worth-appealing vs. not, and why| U
@@ -122,6 +139,55 @@ Design choices worth calling out:
   retelling of it.
 - **Model-provider agnostic** in the same way — `claimclarity/config.py`
   picks Anthropic direct or Amazon Bedrock automatically.
+- **The escalation advisor never invents a citation or a deadline.** Like
+  the investigator, it's given a bundled reference dataset
+  (`claimclarity/data/state_doi_reference.json`) and instructed to draw its
+  regulatory basis and deadline window only from that data — see **External
+  Review & Regulatory Escalation** below.
+
+## External Review & Regulatory Escalation
+
+**The problem this closes:** most denied claims that get an internal appeal
+never go any further — not because the internal appeal always succeeds, but
+because almost nobody knows that after it, US law (the ACA's external review
+framework, alongside most state insurance codes) gives them the right to an
+**independent External Review** by a third party outside the insurer, and
+separately the right to file a complaint with their **state Department of
+Insurance (DOI)** if the insurer mishandled the claims process. That right
+comes with its own short filing window — often just 4 months from the
+internal appeal decision — and almost no patient drafts that request,
+because almost no patient is told it exists. This is frequently the more
+powerful step: an external reviewer has no relationship with the insurer and
+can overturn the denial outright.
+
+ClaimClarity now runs this as pipeline step 6, unconditionally, right after
+the internal appeal is drafted:
+
+1. It looks up the patient's state (extracted from the documents where
+   possible, `ClaimRecord.state`) against `claimclarity/data/state_doi_reference.json`
+   — a bundled sample of 10 states plus a federal-fallback `DEFAULT` entry
+   grounded in the genuine, stable ACA baseline (45 CFR 147.136), used
+   whenever the state can't be determined or isn't in the sample.
+2. The **Escalation Advisor** agent (`claimclarity/agents/escalation_advisor.py`)
+   decides, from the actual `DenialFindings`, whether there's still a
+   genuine dispute worth escalating (`eligible_for_external_review`), drafts
+   a ready-to-send **external review request letter**, and — only when the
+   findings show an actual process failure (e.g. a billing error the insurer
+   should have caught), never reflexively for a valid denial — drafts a
+   **state DOI complaint letter**.
+3. Both letters, the deadline window, and a plain-language `regulatory_basis`
+   are written to `escalation_package.md`. `decisions_needed.md` is
+   re-rendered with one line pointing to it.
+4. A second `.ics` reminder, `external_review_deadline.ics`, is created for
+   the external review deadline, the same way `appeal_deadline.ics` already
+   covers the internal appeal deadline.
+
+This is explicitly **not legal advice** — the escalation advisor's system
+prompt says so, and is held to the same evidence discipline as
+`denial_investigator.py`: it never states a deadline it wasn't given grounds
+for, and it never recommends a DOI complaint as a blanket move — only when
+the investigation actually found something the insurer should be held
+accountable for.
 
 ## Quickstart
 
@@ -143,8 +209,9 @@ claimclarity run \
 
 This streams each tool call as it happens (including the live ICD-10 lookup
 calls), then prints a summary and writes `claim_summary.md`,
-`denial_findings.md`, `decisions_needed.md`, `appeal_package.md`, and
-`appeal_deadline.ics` to `output/`.
+`denial_findings.md`, `decisions_needed.md`, `appeal_package.md`,
+`appeal_deadline.ics`, `escalation_package.md`, and
+`external_review_deadline.ics` to `output/`.
 
 Or run the Streamlit demo:
 
@@ -167,14 +234,17 @@ claimclarity/
   rendering.py                   Deterministic Markdown rendering (no LLM calls)
   data/
     icd10_reference.json         Curated, sourced ICD-10-CM reference subset
+    state_doi_reference.json     State DOI complaint / external review reference (10 states + DEFAULT)
   tools/
     documents.py                 @tool read_document, save_text_file
-    calendar.py                   @tool create_appeal_deadline_reminder (.ics generation)
+    calendar.py                   @tool create_appeal_deadline_reminder / create_external_review_deadline_reminder
     icd10.py                      @tool lookup_icd10_code, search_icd10_codes
+    state_doi.py                  lookup_state_doi_process (+ @tool text-report wrapper)
   agents/
     claim_analyzer.py             Sub-agent: documents -> ClaimRecord
     denial_investigator.py        Sub-agent (tool-using): ClaimRecord -> DenialFindings
     appeal_drafter.py             Sub-agent: -> AppealPackage
+    escalation_advisor.py         Sub-agent: -> EscalationPackage (external review + DOI complaint)
   orchestrator.py                 Orchestrator Agent (agents-as-tools) + shared ClaimCase state
   pipeline.py                     run_claim_case() convenience wrapper used by CLI/UI/AgentCore
   cli.py                          `claimclarity run` / `claimclarity status`
@@ -229,11 +299,23 @@ stretch goal, not a requirement — everything above runs standalone.
   actual claims history or plan document beyond what you provide — for high-
   stakes or complex denials, a licensed patient advocate or attorney should
   review before you rely on this. ClaimClarity is built to make that review
-  fast and well-informed, not to replace it.
+  fast and well-informed, not to replace it. The External Review & DOI
+  escalation feature is held to the same standard: it describes the general
+  ACA framework (45 CFR 147.136) and the process for the 10 states in its
+  bundled sample generically, and deliberately does not cite exact state
+  statute numbers it can't independently verify — see
+  `claimclarity/data/state_doi_reference.json`'s `_source_note`. Always check
+  your own denial/appeal letter, which is legally required to state your
+  plan's actual external review deadline and process.
+- The bundled state DOI reference data covers 10 states plus a federal-
+  fallback `DEFAULT` entry, not all 50 states + DC — `lookup_state_doi_process`
+  falls back to the federal baseline for any other state rather than
+  guessing at that state's specific process. A production deployment should
+  expand `claimclarity/data/state_doi_reference.json` to full coverage.
 - **What's actually been verified, precisely:** the tool functions (including
-  ICD-10 lookups against the bundled data), Pydantic schemas, Markdown
-  rendering, and the orchestrator's tool-call plumbing are covered by 35+
-  offline tests and have run clean. `test_claimclarity_pipeline_integration.py`
+  ICD-10 and state DOI lookups against the bundled data), Pydantic schemas,
+  Markdown rendering, and the orchestrator's tool-call plumbing are covered
+  by 55+ offline tests and have run clean. `test_claimclarity_pipeline_integration.py`
   has also passed against a real model end to end, correctly calling
   `lookup_icd10_code` before judging a code and correctly classifying both
   the fixable billing error and the genuine plan exclusion in the bundled

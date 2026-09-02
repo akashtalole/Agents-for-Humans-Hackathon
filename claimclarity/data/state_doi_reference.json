@@ -1,0 +1,115 @@
+{
+  "_source_note": "A reference set describing each state's Department of Insurance (DOI) complaint process and independent external review framework in general, plain-language terms. Regulator names and well-documented program names (e.g. California's Independent Medical Review, North Carolina's Smart NC) are real and were checked during development; exact statute numbers are deliberately NOT cited per-state because those change and were not individually verified - the one citation used throughout is the genuine, stable federal baseline: 45 CFR 147.136 (the ACA's internal claims/appeals and external review regulation). Contact details are given as instructions for where to find current, official info (a search term or a stable federal directory URL), never as a specific phone number, which goes stale and cannot be verified offline. This is not legal advice. Covers a sample of 10 states plus DEFAULT (the federal fallback used for any other state, or when the patient's state can't be determined).",
+  "states": {
+    "CA": {
+      "state_code": "CA",
+      "state_name": "California",
+      "doi_name": "California Department of Managed Health Care (DMHC) for most HMO plans, or the California Department of Insurance (CDI) for most PPO/indemnity plans",
+      "doi_complaint_process": "Both regulators accept consumer complaints about how an insurer handled a claim (delays, failure to follow required procedures, etc.), separate from the medical necessity decision itself. DMHC's Help Center and CDI's Consumer Hotline both take complaints online or by phone.",
+      "external_review_process": "California's independent external review is commonly known as Independent Medical Review (IMR) for DMHC-regulated plans, or a similar independent review process for CDI-regulated plans - a doctor with no stake in the outcome reviews the denial.",
+      "external_review_deadline_window": "Your plan's final internal appeal denial letter states the exact deadline to request review. If that's unclear, the federal minimum floor of at least 4 months (120 days) after the final internal denial still applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'California DMHC Help Center' (for HMO plans) or 'California Department of Insurance consumer complaint' (for PPO plans) for current phone numbers and online complaint forms - contact details change, so do not rely on a number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in California partly through the DMHC/CDI independent review programs described above."
+    },
+    "NY": {
+      "state_code": "NY",
+      "state_name": "New York",
+      "doi_name": "New York State Department of Financial Services (DFS)",
+      "doi_complaint_process": "DFS accepts consumer complaints about how a health insurer handled a claim, including delays and failure to follow required procedures, through its online complaint portal.",
+      "external_review_process": "New York's external appeal process lets a patient request review by a DFS-certified independent review organization after exhausting the internal appeal (or in certain urgent situations without waiting).",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'New York DFS health insurance complaint' or 'New York DFS external appeal' for current online complaint and external-appeal request forms - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in New York through DFS's external appeal process."
+    },
+    "TX": {
+      "state_code": "TX",
+      "state_name": "Texas",
+      "doi_name": "Texas Department of Insurance (TDI)",
+      "doi_complaint_process": "TDI accepts consumer complaints about how an insurer handled a claim, including untimely responses and procedural failures, through its online complaint system.",
+      "external_review_process": "Texas uses independent review organizations (IROs) certified by TDI to conduct external reviews of denied claims involving medical judgment.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Texas Department of Insurance file a complaint' or 'Texas TDI independent review organization' for current contact and request forms - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Texas through TDI's IRO program."
+    },
+    "FL": {
+      "state_code": "FL",
+      "state_name": "Florida",
+      "doi_name": "Florida Department of Financial Services (Division of Consumer Services) and the Florida Office of Insurance Regulation (OIR)",
+      "doi_complaint_process": "The Department of Financial Services' Division of Consumer Services accepts complaints about how a claim was handled, including delays and procedural failures.",
+      "external_review_process": "Florida-regulated plans provide access to an independent external review by a certified independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Florida Department of Financial Services insurance consumer complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Florida through the state's independent review process."
+    },
+    "IL": {
+      "state_code": "IL",
+      "state_name": "Illinois",
+      "doi_name": "Illinois Department of Insurance",
+      "doi_complaint_process": "The Illinois Department of Insurance accepts complaints about how an insurer handled a claim, including delays and failure to follow required internal appeal procedures.",
+      "external_review_process": "Illinois provides an independent external review process for denials involving medical judgment, conducted by an independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Illinois Department of Insurance file a complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Illinois through the state's independent review process."
+    },
+    "PA": {
+      "state_code": "PA",
+      "state_name": "Pennsylvania",
+      "doi_name": "Pennsylvania Insurance Department",
+      "doi_complaint_process": "The Pennsylvania Insurance Department accepts complaints about how an insurer handled a claim, including delays and procedural failures, through its consumer services bureau.",
+      "external_review_process": "Pennsylvania provides an independent external review process for denials involving medical judgment, conducted by a certified independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Pennsylvania Insurance Department consumer complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Pennsylvania through the state's independent review process."
+    },
+    "OH": {
+      "state_code": "OH",
+      "state_name": "Ohio",
+      "doi_name": "Ohio Department of Insurance",
+      "doi_complaint_process": "The Ohio Department of Insurance accepts complaints about how an insurer handled a claim, including delays and procedural failures, through its online consumer complaint system.",
+      "external_review_process": "Ohio provides an independent external review process for denials involving medical judgment, conducted by an independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Ohio Department of Insurance file a complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Ohio through the state's independent review process."
+    },
+    "GA": {
+      "state_code": "GA",
+      "state_name": "Georgia",
+      "doi_name": "Georgia Office of Commissioner of Insurance and Safety Fire",
+      "doi_complaint_process": "The Georgia Office of Commissioner of Insurance and Safety Fire accepts complaints about how an insurer handled a claim, including delays and procedural failures.",
+      "external_review_process": "Georgia provides an independent external review process for denials involving medical judgment, conducted by a certified independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Georgia Office of Insurance and Safety Fire Commissioner consumer complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Georgia through the state's independent review process."
+    },
+    "NC": {
+      "state_code": "NC",
+      "state_name": "North Carolina",
+      "doi_name": "North Carolina Department of Insurance, via its Health Insurance Smart NC program",
+      "doi_complaint_process": "Smart NC accepts complaints about how an insurer handled a claim and can help walk a patient through both the DOI complaint and external review request processes directly.",
+      "external_review_process": "North Carolina provides an independent external review process for denials involving medical judgment, conducted by a certified independent review organization after the internal appeal is exhausted - Smart NC can help file the request.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'North Carolina Smart NC health insurance help' for current contact info and online complaint/external-review forms - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in North Carolina through the Smart NC-assisted independent review process."
+    },
+    "WA": {
+      "state_code": "WA",
+      "state_name": "Washington",
+      "doi_name": "Washington State Office of the Insurance Commissioner (OIC)",
+      "doi_complaint_process": "The OIC accepts complaints about how an insurer handled a claim, including delays and procedural failures, through its online consumer complaint system.",
+      "external_review_process": "Washington provides an independent external review process for denials involving medical judgment, conducted by a certified independent review organization after the internal appeal is exhausted.",
+      "external_review_deadline_window": "Check your internal appeal denial letter for the exact deadline; the federal minimum floor of at least 4 months (120 days) after the final internal denial applies (45 CFR 147.136).",
+      "doi_contact_instruction": "Search 'Washington state Office of the Insurance Commissioner file a complaint' for the current online complaint form and contact info - do not rely on a phone number from this file.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136), implemented in Washington through the state's independent review process."
+    },
+    "DEFAULT": {
+      "state_code": "DEFAULT",
+      "state_name": "your state (not in ClaimClarity's bundled sample, or not determined from the documents)",
+      "doi_name": "Your state Department of Insurance - or, if this is a self-funded employer plan governed by ERISA rather than a fully-insured plan, the U.S. Department of Labor's Employee Benefits Security Administration (EBSA)",
+      "doi_complaint_process": "Every state has a consumer complaint process for how an insurer handled a claim (delays, failure to follow required procedures, etc.), separate from the medical necessity decision itself. For a self-funded ERISA plan, that complaint instead goes to the DOL's EBSA rather than a state DOI.",
+      "external_review_process": "Under the ACA, your plan must offer independent external review for denials involving medical judgment or rescission - either through your state's own external review process, or through the HHS-administered Federal External Review Process, run by an independent third party with no stake in the outcome (45 CFR 147.136).",
+      "external_review_deadline_window": "At least 4 months (120 days) after you receive the final internal appeal denial, per the federal minimum standard (45 CFR 147.136) - your denial/appeal letter is legally required to state the exact deadline and process for your plan; use that date.",
+      "doi_contact_instruction": "Look up your state's Department of Insurance at the NAIC's official state insurance department directory (https://content.naic.org/state-insurance-departments), or, for a self-funded/ERISA plan, contact the DOL's EBSA at askebsa.dol.gov - do not rely on a phone number from this file, contact info changes.",
+      "regulatory_note": "General ACA external review framework (45 CFR 147.136). State-specific process details were not in ClaimClarity's bundled sample for this state - your denial notice's own external review instructions (required by law to be included) are the authoritative source."
+    }
+  }
+}
