@@ -23,6 +23,11 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = subparsers.add_parser("run", help="Process one RFP end to end")
     run_parser.add_argument("--rfp", required=True, help="Path to the RFP document (.txt/.md/.pdf/.docx)")
     run_parser.add_argument("--profile", required=True, help="Path to the company profile (.txt/.md/.json)")
+    run_parser.add_argument(
+        "--amendment",
+        default=None,
+        help="Path to an RFP amendment/addendum document, if one was issued (.txt/.md/.pdf/.docx)",
+    )
     run_parser.add_argument("--out", default="output", help="Output directory (default: ./output)")
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the live activity stream")
 
@@ -41,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         rfp_path=args.rfp,
         profile_path=args.profile,
         output_dir=args.out,
+        amendment_path=args.amendment,
         callback_handler=callback_handler,
     )
 
@@ -52,7 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     # decisions_needed.md is - the orchestrator's reply is shown after it,
     # clearly labeled, for transparency rather than as the thing to rely on.
     print("\n\n=== Decisions needed ===\n")
-    print(render_decision_summary_md(result.job.requirements, result.job.compliance))
+    print(
+        render_decision_summary_md(
+            result.job.requirements, result.job.compliance, result.job.amendment_impact
+        )
+    )
     print("=== Orchestrator's own summary (informational; see above for the verified version) ===\n")
     print(result.summary_text)
     print(f"\nFiles written to: {args.out}/")

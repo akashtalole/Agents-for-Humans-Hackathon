@@ -76,6 +76,60 @@ class ComplianceReport(BaseModel):
     gaps: list[ComplianceGap] = Field(default_factory=list)
 
 
+class ModifiedRequirement(BaseModel):
+    """A requirement the amendment changed, not just added or removed."""
+
+    item: str = Field(description="Which requirement or checklist item this amendment changes")
+    previous: str = Field(description="What it said before the amendment")
+    updated: str = Field(description="What it says now, per the amendment")
+    notes: str = Field(default="", description="Any additional context, e.g. why it matters")
+
+
+class AmendmentImpact(BaseModel):
+    """Structured diff of an RFP amendment/addendum against the original
+    requirements, and what it means for compliance and the proposal draft."""
+
+    summary: str = Field(
+        description="2-4 sentence plain-language summary of what this amendment changes"
+    )
+    urgency: Severity = Field(
+        description="blocking if this invalidates prior compliance work or moves the "
+        "deadline sooner; warning if it adds meaningful new obligations; info if it's a "
+        "minor clarification"
+    )
+    deadline_changed: bool = Field(default=False)
+    new_deadline: str | None = Field(
+        default=None,
+        description="The new submission deadline if changed, normalized like "
+        "RFPRequirements.submission_deadline. None if unchanged.",
+    )
+    new_requirements: list[ChecklistItem] = Field(
+        default_factory=list, description="Requirements this amendment adds that were not in the original RFP"
+    )
+    removed_requirements: list[ChecklistItem] = Field(
+        default_factory=list, description="Requirements this amendment explicitly removes or waives"
+    )
+    modified_requirements: list[ModifiedRequirement] = Field(
+        default_factory=list, description="Requirements this amendment changes rather than adds or removes"
+    )
+    compliance_impact: str = Field(
+        default="",
+        description="Whether this amendment invalidates any previously-met compliance item or "
+        "previously-identified gap, and why. Empty string if there is no prior compliance "
+        "report to reconsider or nothing is affected.",
+    )
+    proposal_sections_requiring_revision: list[str] = Field(
+        default_factory=list,
+        description="Which sections of an already-drafted proposal (e.g. 'technical_approach', "
+        "'compliance_matrix_notes') need rework because of this amendment. Empty if none or no "
+        "proposal has been drafted yet.",
+    )
+    recommendation: str = Field(
+        description="Concrete next step for a busy owner, e.g. 'Update your insurance "
+        "certificate reference before resubmitting - the amendment raised the minimum coverage.'"
+    )
+
+
 class ProposalDraft(BaseModel):
     cover_letter: str
     executive_summary: str

@@ -53,6 +53,51 @@ Try it against the included example (a municipal landscaping RFP with a
 deliberately underinsured example company, so the compliance check has
 something real to catch) — see **Quickstart** below.
 
+## Amendment / addendum impact analysis
+
+Government and commercial RFPs routinely get amended after they're first
+posted — a deadline pushed back a week, a requirement added or dropped, a
+clarifying Q&A response, an attachment swapped out. Agencies and buyers
+publish these amendments on the same portal as the original RFP, but a small
+business without a dedicated contracts team watching that portal every day
+frequently never sees them — and ends up submitting a compliant proposal
+against a *stale* version of the requirements, which is exactly the kind of
+technicality that gets a bid thrown out or leaves money on the table.
+
+If you have an amendment/addendum document for an RFP, pass it with
+`--amendment`:
+
+```bash
+bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.json \
+  --amendment path/to/amendment_1.pdf --out output
+```
+
+BidWright diffs the amendment against the already-extracted requirements (and
+the compliance report, if one exists) and reports, in `amendment_impact.md`:
+
+- A plain-language summary of what actually changed, with an urgency rating
+  (`blocking` / `warning` / `info`).
+- Whether the submission deadline moved, and to what.
+- Exactly what's new, removed, or modified — not just "insurance changed" but
+  the specific requirement, what it used to say, and what it says now.
+- Whether the amendment invalidates anything a prior compliance check marked
+  "met," or changes a gap it had already flagged.
+- Which sections of an already-drafted proposal, if any, are now stale and
+  need rework.
+- A concrete recommendation for a busy owner.
+
+If the amendment is significant, that same information also gets appended as
+a clearly flagged **"AMENDMENT ALERT"** section at the top of
+`decisions_needed.md`, so it can't get buried under an old compliance report
+someone already skimmed. A trivial amendment (e.g. a typo fix) is recorded in
+`amendment_impact.md` but does not clutter `decisions_needed.md` with an
+alert — the goal is to interrupt the owner for things that actually need a
+decision, same as the compliance gaps.
+
+`--amendment` is entirely optional. Omit it and BidWright behaves exactly as
+it always has — this is additive, not a required step, because most RFPs
+never get amended.
+
 ## Architecture
 
 BidWright is a Strands **"agents as tools"** multi-agent system: an
@@ -68,13 +113,16 @@ flowchart TD
     O -->|tool call| A["extract_rfp_requirements\n→ RFP Analyzer Agent"]
     O -->|tool call| C["check_company_compliance\n→ Compliance Checker Agent"]
     O -->|tool call| R[create_submission_deadline_reminder]
+    O -->|tool call| M["analyze_rfp_amendment (optional)\n→ Amendment Analyzer Agent"]
     O -->|tool call| P["draft_proposal_document\n→ Proposal Drafter Agent"]
 
     A -->|RFPRequirements| J[(Shared BidJob state)]
     C -->|ComplianceReport| J
+    M -->|AmendmentImpact| J
     P -->|ProposalDraft| J
     J --> A
     J --> C
+    J --> M
     J --> P
 
     J --> F1[requirements.md]
@@ -82,6 +130,7 @@ flowchart TD
     J --> F3[decisions_needed.md]
     J --> F4[proposal_draft.md]
     J --> F5[submission_deadline.ics]
+    J --> F6["amendment_impact.md (if --amendment given)"]
 
     O -->|plain-English summary| U
     F3 -->|only the blocking items| U
@@ -120,7 +169,8 @@ bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.js
 
 This streams each tool call as it happens, then prints a summary and writes
 `requirements.md`, `compliance_report.md`, `decisions_needed.md`,
-`proposal_draft.md`, and `submission_deadline.ics` to `output/`.
+`proposal_draft.md`, and `submission_deadline.ics` to `output/` (plus
+`amendment_impact.md` if `--amendment` was given).
 
 Or run the Streamlit demo:
 
@@ -147,6 +197,7 @@ bidwright/
   agents/
     rfp_analyzer.py           Sub-agent: RFP text -> RFPRequirements
     compliance_checker.py     Sub-agent: RFPRequirements + profile -> ComplianceReport
+    amendment_analyzer.py     Sub-agent: RFPRequirements + amendment text -> AmendmentImpact
     proposal_drafter.py       Sub-agent: -> ProposalDraft
   orchestrator.py             Orchestrator Agent (agents-as-tools) + shared BidJob state
   pipeline.py                 run_bid_job() convenience wrapper used by CLI/UI/AgentCore

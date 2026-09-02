@@ -19,12 +19,14 @@ from pathlib import Path
 
 from strands import Agent, tool
 
+from bidwright.agents.amendment_analyzer import analyze_amendment
 from bidwright.agents.compliance_checker import check_compliance
 from bidwright.agents.proposal_drafter import draft_proposal
 from bidwright.agents.rfp_analyzer import analyze_rfp
 from bidwright.config import create_agent
-from bidwright.models import ComplianceReport, ProposalDraft, RFPRequirements
+from bidwright.models import AmendmentImpact, ComplianceReport, ProposalDraft, RFPRequirements
 from bidwright.rendering import (
+    render_amendment_impact_md,
     render_compliance_md,
     render_decision_summary_md,
     render_proposal_md,
@@ -44,7 +46,14 @@ For every job, always run the full pipeline in this order:
 2. extract_rfp_requirements
 3. check_company_compliance
 4. create_submission_deadline_reminder
-5. draft_proposal_document
+5. analyze_rfp_amendment
+6. draft_proposal_document
+
+Step 5 only matters when an amendment/addendum document was provided for \
+this job - always call it anyway, right after the compliance check and before \
+drafting the proposal, so a changed requirement can't slip into a stale \
+proposal draft. If it reports back that no amendment is configured, that is \
+not a failure - just move on to draft_proposal_document.
 
 Then write a final answer for a busy small business owner who has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual gap \
@@ -73,10 +82,12 @@ class BidJob:
     rfp_path: str
     profile_path: str
     output_dir: str
+    amendment_path: str | None = None
     rfp_text: str = ""
     profile_text: str = ""
     requirements: RFPRequirements | None = None
     compliance: ComplianceReport | None = None
+    amendment_impact: AmendmentImpact | None = None
     proposal: ProposalDraft | None = None
     activity_log: list[str] = field(default_factory=list)
 
@@ -145,6 +156,41 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def analyze_rfp_amendment() -> str:
+        """Diff a newly issued RFP amendment/addendum against the already
+        extracted requirements and (if available) the prior compliance
+        report: what's new, removed, or modified, whether the deadline moved,
+        and what it means for compliance and any drafted proposal. Must be
+        called after extract_rfp_requirements. If this job has no amendment
+        document configured, it reports that and does nothing - that's an
+        expected, normal outcome, not an error, for the common case where no
+        amendment was ever issued."""
+        if job.requirements is None:
+            return "Error: call extract_rfp_requirements first."
+        if not job.amendment_path:
+            return "No amendment document was provided for this job - nothing to do."
+        amendment_text = read_document(job.amendment_path)
+        job.amendment_impact = analyze_amendment(job.requirements, job.compliance, amendment_text)
+        save_text_file(
+            str(out_dir / "amendment_impact.md"), render_amendment_impact_md(job.amendment_impact)
+        )
+        if job.compliance is not None:
+            save_text_file(
+                str(out_dir / "decisions_needed.md"),
+                render_decision_summary_md(job.requirements, job.compliance, job.amendment_impact),
+            )
+        msg = (
+            f"Amendment analyzed. Urgency: {job.amendment_impact.urgency.value}. "
+            f"Deadline changed: {job.amendment_impact.deadline_changed}. "
+            f"{len(job.amendment_impact.new_requirements)} new, "
+            f"{len(job.amendment_impact.removed_requirements)} removed, "
+            f"{len(job.amendment_impact.modified_requirements)} modified requirement(s). "
+            "Full details saved to amendment_impact.md."
+        )
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
     def draft_proposal_document() -> str:
         """Draft the proposal response document (cover letter, executive
         summary, technical approach, qualifications, compliance notes)
@@ -185,6 +231,7 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             extract_rfp_requirements,
             check_company_compliance,
             create_submission_deadline_reminder,
+            analyze_rfp_amendment,
             draft_proposal_document,
         ],
     )
