@@ -22,6 +22,17 @@ def main(argv: list[str] | None = None) -> int:
 
     run_parser = subparsers.add_parser("run", help="Run this week's watchlist end to end")
     run_parser.add_argument("--out", default="output", help="Output directory (default: ./output)")
+    run_parser.add_argument(
+        "--history-file",
+        default="glacierwatch_history.json",
+        help=(
+            "Path to the persistent run-history JSON file used for trend early-warning detection "
+            "(default: ./glacierwatch_history.json). Kept independent of --out on purpose so history "
+            "keeps accumulating across runs even if --out changes week to week; point separate --out "
+            "runs at the same --history-file to build up trend history, or a fresh path to start over. "
+            "A missing file just means this is the first run - it is created automatically, not an error."
+        ),
+    )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the live activity stream")
 
     subparsers.add_parser("status", help="Show which model provider GlacierWatch will use")
@@ -35,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Model provider: {model_status()}", file=sys.stderr)
     callback_handler = None if args.quiet else _print_stream_event
 
-    result = run_watchlist(output_dir=args.out, callback_handler=callback_handler)
+    result = run_watchlist(output_dir=args.out, history_file=args.history_file, callback_handler=callback_handler)
 
     # Same discipline as bidwright/cli.py and claimclarity/cli.py: the
     # deterministic, code-rendered report is the trusted headline. The

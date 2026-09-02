@@ -29,8 +29,12 @@ from glacierwatch.config import create_agent
 from glacierwatch.models import (
     CommunityAlertBulletin,
     CurrentConditions,
+    HistoryEntry,
     PriorityLevel,
+    RunHistory,
     SiteRiskBrief,
+    SiteTrend,
+    TrendClassification,
     WatchlistReport,
     WatchSite,
 )
@@ -39,10 +43,12 @@ from glacierwatch.rendering import (
     render_community_alerts_index_md,
     render_conditions_md,
     render_site_profile_md,
+    render_trend_report_md,
     render_watchlist_report_md,
 )
 from glacierwatch.tools.documents import save_text_file
 from glacierwatch.tools.downstream import load_downstream_exposure
+from glacierwatch.tools.history import append_entries, compute_site_trends, load_history, save_history
 from glacierwatch.tools.seismic import fetch_seismic_events
 from glacierwatch.tools.seismic import source_note as seismic_source_note
 from glacierwatch.tools.watchlist import load_all_sites
@@ -62,8 +68,9 @@ For every run, always execute the full pipeline in this order:
 1. load_watchlist
 2. For every active_watch site returned: fetch_current_conditions(site_id)
 3. For every site (active_watch AND historical_case_study): assess_site_risk(site_id)
-4. draft_watchlist_report
-5. draft_community_alerts
+4. record_run_history_and_detect_trends
+5. draft_watchlist_report
+6. draft_community_alerts
 
 Then write a final answer for a busy official who has 30 seconds. Your tool \
 results only give you counts and filenames, not the actual rationale text \
@@ -75,6 +82,11 @@ final answer must include, in this order:
 (state the count only, e.g. "1 of 4 sites at priority level").
 - A direct pointer to watchlist_report.md as the place to read exactly \
 which sites and why - do not enumerate them yourself.
+- One line stating how many sites show a rising trend across recent runs \
+(state the count only, from the record_run_history_and_detect_trends tool \
+result, e.g. "1 site shows a rising trend") and a pointer to \
+trend_report.md - a rising trend is a real, counted fact, but never claim \
+what it portends.
 - One line stating how many community alert bulletins were drafted (state \
 the count only, from the draft_community_alerts tool result - never invent \
 settlement names or details) and a pointer to community_alerts_index.md.
@@ -92,11 +104,14 @@ class WatchRun:
     """Working state for one GlacierWatch run, shared across every tool call."""
 
     output_dir: str
+    history_file: str = "glacierwatch_history.json"
     sites: list[WatchSite] = field(default_factory=list)
     conditions_by_site: dict[str, CurrentConditions] = field(default_factory=dict)
     briefs: list[SiteRiskBrief] = field(default_factory=list)
     report: WatchlistReport | None = None
     alerts: list[CommunityAlertBulletin] = field(default_factory=list)
+    history: RunHistory = field(default_factory=RunHistory)
+    trends: list[SiteTrend] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -188,6 +203,52 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def record_run_history_and_detect_trends() -> str:
+        """Append this run's key numeric signals (per active_watch site:
+        max daily precipitation, nearby seismic event count, priority
+        level) to the persistent run-history file, then classify each
+        site's trend - rising, flat, falling, or insufficient_history - by
+        comparing this run against prior runs recorded there. This is a
+        trend of already-observed conditions, computed by plain code, never
+        an LLM judgment and never a prediction. Always writes
+        trend_report.md, even when nothing is trending or every site has
+        insufficient_history - it says so plainly either way. Must be
+        called after assess_site_risk has run for every site, before
+        draft_watchlist_report so the watchlist report can surface any
+        early-warning trend."""
+        if not run.briefs:
+            return "Error: no sites have been assessed yet. Call assess_site_risk for each site first."
+
+        briefs_by_id = {b.site_id: b for b in run.briefs}
+        run_at = datetime.now(timezone.utc).isoformat()
+        new_entries = [
+            HistoryEntry(
+                site_id=site_id,
+                run_at=run_at,
+                max_daily_precipitation_mm=conditions.max_daily_precipitation_mm,
+                nearby_seismic_events=len(conditions.nearby_seismic_events),
+                priority_level=briefs_by_id[site_id].priority_level,
+            )
+            for site_id, conditions in run.conditions_by_site.items()
+            if site_id in briefs_by_id
+        ]
+
+        prior_history = load_history(run.history_file)
+        site_names = {b.site_id: b.site_name for b in run.briefs}
+        run.trends = compute_site_trends(new_entries, prior_history, site_names)
+        run.history = append_entries(prior_history, new_entries)
+        save_history(run.history_file, run.history)
+        save_text_file(str(out_dir / "trend_report.md"), render_trend_report_md(run.trends))
+
+        rising = sum(1 for t in run.trends if t.trend == TrendClassification.RISING)
+        msg = (
+            f"Recorded {len(new_entries)} site(s) to run history ({run.history_file}). "
+            f"{rising} of {len(run.trends)} site(s) show a rising trend. See trend_report.md."
+        )
+        run.activity_log.append(msg)
+        return msg
+
+    @tool
     def draft_watchlist_report_tool() -> str:
         """Synthesize all assessed sites into the final weekly watchlist
         report. Must be called after assess_site_risk has run for every
@@ -195,7 +256,9 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         if not run.briefs:
             return "Error: no sites have been assessed yet. Call assess_site_risk for each site first."
         run.report = draft_watchlist_report(run.briefs)
-        save_text_file(str(out_dir / "watchlist_report.md"), render_watchlist_report_md(run.report))
+        save_text_file(
+            str(out_dir / "watchlist_report.md"), render_watchlist_report_md(run.report, run.trends)
+        )
         priority_count = sum(1 for b in run.briefs if b.priority_level.value == "priority")
         msg = (
             f"Watchlist report written to watchlist_report.md. "
@@ -239,6 +302,7 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
             load_watchlist,
             fetch_current_conditions,
             assess_site_risk,
+            record_run_history_and_detect_trends,
             draft_watchlist_report_tool,
             draft_community_alerts,
         ],

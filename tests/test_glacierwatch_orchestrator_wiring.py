@@ -11,8 +11,19 @@ from pathlib import Path
 import httpx
 
 import glacierwatch.orchestrator as orchestrator_module
-from glacierwatch.models import CommunityAlertBulletin, DownstreamSettlement, PriorityLevel, SiteRiskBrief, WatchlistReport
+from glacierwatch.models import (
+    CommunityAlertBulletin,
+    CurrentConditions,
+    DownstreamSettlement,
+    HistoryEntry,
+    PriorityLevel,
+    RunHistory,
+    SeismicEvent,
+    SiteRiskBrief,
+    WatchlistReport,
+)
 from glacierwatch.orchestrator import WatchRun, build_orchestrator
+from glacierwatch.tools.history import save_history
 
 FAKE_OPEN_METEO_RESPONSE = {
     "daily": {
@@ -236,3 +247,103 @@ def test_draft_community_alerts_before_any_assessment_returns_error(tmp_path: Pa
     result = _tool_text(orchestrator.tool.draft_community_alerts())
     assert "Error" in result
     assert "assess_site_risk" in result
+
+
+def _run_with_assessed_gepang_gath(tmp_path: Path, *, mm: float, quake_count: int, history_file: str | None = None):
+    run = WatchRun(output_dir=str(tmp_path), **({"history_file": history_file} if history_file else {}))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.conditions_by_site["gepang-gath"] = CurrentConditions(
+        site_id="gepang-gath",
+        as_of="2026-08-29T00:00:00Z",
+        max_daily_precipitation_mm=mm,
+        nearby_seismic_events=[
+            SeismicEvent(time="2026-08-26T00:00:00Z", magnitude=4.0, distance_km=50.0, place="near X")
+            for _ in range(quake_count)
+        ],
+        weather_source_note="test",
+        seismic_source_note="test",
+    )
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.ELEVATED,
+            rationale="fake rationale", recommended_action="fake action",
+        )
+    ]
+    return run, orchestrator
+
+
+def test_record_run_history_and_detect_trends_before_assessment_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path), history_file=str(tmp_path / "history.json"))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Error" in result
+    assert "assess_site_risk" in result
+    assert not (tmp_path / "history.json").exists()
+    assert not (tmp_path / "trend_report.md").exists()
+
+
+def test_record_run_history_fresh_history_is_insufficient_history_not_an_error(tmp_path: Path):
+    history_path = tmp_path / "history.json"
+    run, orchestrator = _run_with_assessed_gepang_gath(tmp_path, mm=50.0, quake_count=1, history_file=str(history_path))
+
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Error" not in result
+    assert "Recorded 1 site(s)" in result
+    assert "0 of 1 site(s) show a rising trend" in result
+
+    assert history_path.exists()
+    assert (tmp_path / "trend_report.md").exists()
+    trend_md = (tmp_path / "trend_report.md").read_text()
+    assert "insufficient_history".upper().replace("_", " ") in trend_md.upper()
+    assert "not a forecast" in trend_md.lower()
+
+    assert len(run.trends) == 1
+    assert run.trends[0].trend.value == "insufficient_history"
+    assert len(run.history.entries) == 1
+
+
+def test_record_run_history_happy_path_detects_rising_trend_from_synthetic_history(tmp_path: Path):
+    history_path = tmp_path / "history.json"
+    # Two prior runs of climbing rainfall and seismic counts, written directly
+    # to disk to simulate a multi-week deployment history.
+    save_history(
+        str(history_path),
+        RunHistory(
+            entries=[
+                HistoryEntry(
+                    site_id="gepang-gath", run_at="2026-08-01T00:00:00Z", max_daily_precipitation_mm=10.0,
+                    nearby_seismic_events=0, priority_level=PriorityLevel.ROUTINE,
+                ),
+                HistoryEntry(
+                    site_id="gepang-gath", run_at="2026-08-08T00:00:00Z", max_daily_precipitation_mm=30.0,
+                    nearby_seismic_events=1, priority_level=PriorityLevel.ROUTINE,
+                ),
+            ]
+        ),
+    )
+    run, orchestrator = _run_with_assessed_gepang_gath(tmp_path, mm=80.0, quake_count=3, history_file=str(history_path))
+
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Recorded 1 site(s)" in result
+    assert "1 of 1 site(s) show a rising trend" in result
+
+    assert len(run.trends) == 1
+    assert run.trends[0].trend.value == "rising"
+    assert run.trends[0].site_name == "Gepang Gath Lake"
+    # The two prior runs plus this one were persisted back to disk.
+    assert len(run.history.entries) == 3
+    reloaded = RunHistory.model_validate_json(history_path.read_text())
+    assert len(reloaded.entries) == 3
+
+    trend_md = (tmp_path / "trend_report.md").read_text()
+    assert "RISING" in trend_md
+    assert "Gepang Gath Lake" in trend_md
+
+    # And the watchlist report, drafted after, surfaces the same rising
+    # trend for a site that isn't yet at priority level this week.
+    monkeypatch_report = WatchlistReport(briefs=run.briefs, overall_summary="0 site(s) at priority level.")
+    from glacierwatch.rendering import render_watchlist_report_md
+
+    report_md = render_watchlist_report_md(monkeypatch_report, run.trends)
+    assert "Trend early-warning" in report_md
+    assert "Gepang Gath Lake" in report_md

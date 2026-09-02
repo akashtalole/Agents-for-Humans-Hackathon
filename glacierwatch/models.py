@@ -112,6 +112,50 @@ class DownstreamSettlement(BaseModel):
     notes: str = ""
 
 
+class HistoryEntry(BaseModel):
+    """One site's key numeric signals from one past run, appended to the
+    persistent run-history file (glacierwatch/tools/history.py) after every
+    run. Deliberately narrow - just the numbers a trend needs, not a full
+    CurrentConditions/SiteRiskBrief snapshot - so history stays small and
+    easy to reason about."""
+
+    site_id: str
+    run_at: str = Field(description="ISO timestamp this run's data was recorded")
+    max_daily_precipitation_mm: float
+    nearby_seismic_events: int
+    priority_level: PriorityLevel
+
+
+class RunHistory(BaseModel):
+    """The full run-history file: every HistoryEntry recorded across all past
+    runs, in the order they were appended (oldest first)."""
+
+    entries: list[HistoryEntry] = Field(default_factory=list)
+
+
+class TrendClassification(str, Enum):
+    RISING = "rising"
+    FLAT = "flat"
+    FALLING = "falling"
+    INSUFFICIENT_HISTORY = "insufficient_history"
+
+
+class SiteTrend(BaseModel):
+    """A pure-code trend classification for one site, computed by comparing
+    this run's signals against prior runs recorded in the run-history file -
+    never an LLM judgment. See glacierwatch/tools/history.py:classify_trend
+    for the exact, documented threshold logic. A trend describes already-
+    observed conditions across past runs; it is never a prediction."""
+
+    site_id: str
+    site_name: str
+    trend: TrendClassification
+    runs_considered: int = Field(
+        description="How many recorded runs (including this one) the classification is based on"
+    )
+    explanation: str = Field(description="Plain-language statement of the deltas that produced this classification")
+
+
 class CommunityAlertBulletin(BaseModel):
     """Plain-language output for a village-level committee downstream of a
     priority-level site - distinct audience and register from
