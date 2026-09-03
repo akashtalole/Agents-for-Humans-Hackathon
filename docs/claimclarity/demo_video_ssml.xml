@@ -1,0 +1,175 @@
+<speak>
+
+<!-- ================================================================ -->
+<!-- SECTION 1: HOOK + PROBLEM                                        -->
+<!-- SCREEN: A dense Explanation of Benefits letter, "CLAIM DENIED" stamped, then cut to the ClaimClarity title -->
+<!-- Target run time for this section: ~35s -->
+<!-- ================================================================ -->
+<p>
+  <s>Most denied health insurance claims are never appealed.</s>
+  <s>Not because the denial was right — <emphasis level="moderate">often it isn't</emphasis> —
+  but because figuring out whether a denial reason is even legitimate, and
+  drafting a correctly-argued appeal inside a strict filing window, is a
+  specialized, exhausting task nobody has the bandwidth for while sick,
+  injured, or already stressed about a bill.</s>
+</p>
+
+<p>
+  <s>A lot of those denials are pure mechanical billing errors — an outdated
+  diagnosis code, a typo — that would be reprocessed immediately if someone
+  just caught it and said so.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+  <s>This is ClaimClarity — an agent built with the Strands Agents SDK that
+  reads your denial notice, checks it against real ICD-10 coding rules and
+  your plan's own terms, and drafts the appeal — or tells you honestly when
+  it's not worth fighting.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 2: WHO IT'S FOR                                          -->
+<!-- SCREEN: Icons representing patients, caregivers, small medical billing offices -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>ClaimClarity is built for the people staring down an Explanation of
+  Benefits with no billing background:</s>
+  <s>patients managing their own care, family caregivers handling a parent's
+  bills, and the small clinics and billing offices too short-staffed to
+  chase every denial by hand.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 3: WHY IT MATTERS                                        -->
+<!-- SCREEN: Simple before/after — a stack of confusing paperwork vs. one clear decision summary -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>What used to mean hours of confusion, or just paying a bill you didn't
+  actually owe, now runs unattended — and because it never recommends
+  fighting a denial that's genuinely valid, you're not wasting your appeal
+  window on a fight you can't win either.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 4: LIVE DEMO WALKTHROUGH                                 -->
+<!-- SCREEN: CLI or Streamlit, bundled example denial notice + plan summary of benefits selected -->
+<!-- Target run time: ~2m 15s — this is the core of the video -->
+<!-- ================================================================ -->
+<p>
+  <s>Let's watch it work on a real example: a denial notice with two line
+  items on it, both billed under the same diagnosis code.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+  <s>One click, and an orchestrator agent takes over — coordinating three
+  specialized sub-agents, each returning validated, structured data instead
+  of loose text one agent might hand the next and get wrong.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Claim Analyzer output — claim_summary.md content -->
+<p>
+  <s>First, the Claim Analyzer reads the denial notice, the plan summary of
+  benefits, and the medical record excerpt, and extracts a structured
+  record: patient, insurer, every denied line item with its procedure and
+  diagnosis codes, the stated denial reason, and the appeal deadline —
+  which also becomes a calendar reminder with automatic two-week and
+  three-day advance warnings.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Denial Investigator's tool trace — lookup_icd10_code / search_icd10_codes calls visible -->
+<p>
+  <s>Next, the Denial Investigator looks at each denied line item — and
+  this is the part we care most about getting right. Instead of reasoning
+  about medical coding from a language model's memory, which is a common
+  source of confidently wrong billing advice, it actually
+  <emphasis level="moderate">calls a real ICD-10 lookup tool</emphasis>
+  before concluding anything.</s>
+</p>
+
+<break time="400ms"/>
+
+<p>
+  <s>On this run, it caught that one line item's diagnosis code was retired
+  for billing purposes back in twenty twenty-two — a mechanical
+  <prosody rate="95%">billing error</prosody> — and found the correct,
+  specific replacement code. The second line item, a massage therapy
+  charge, it correctly classified as a
+  <prosody rate="95%">valid denial</prosody>: a genuine plan exclusion, no
+  amount of coding fixes it. Two identically-worded denials, told apart
+  correctly.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Appeal Drafter output — appeal_package.md tab -->
+<p>
+  <s>Then the Appeal Drafter writes a real, ready-to-send appeal letter for
+  the item worth appealing — citing the specific denial reason and the
+  corrected code — and an honest plain-language explanation for the one
+  that isn't, instead of drafting a doomed letter just to be agreeable.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Decisions Needed output, front and center -->
+<p>
+  <s>And everything funnels into exactly one place a stressed patient
+  actually needs to read: <emphasis level="moderate">Decisions Needed</emphasis>.</s>
+  <s>What's worth appealing, what isn't and why, and the deadline. Nothing
+  else requires your attention unless you want to dig in.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: NoSessionContext crash screenshot, briefly, captioned as a real bug filed openly -->
+<p>
+  <s>Being candid: while producing this very documentation, we found and
+  precisely root-caused a real threading bug in the demo's live activity
+  log — filed openly rather than hidden, with the exact fix documented, and
+  confirmed the underlying agent pipeline itself is unaffected.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- ================================================================ -->
+<!-- SECTION 5: CLOSE                                                 -->
+<!-- SCREEN: ClaimClarity logo/title card, then architecture diagram briefly -->
+<!-- Target run time: ~25s -->
+<!-- ================================================================ -->
+<p>
+  <s>ClaimClarity drafts. It doesn't submit — a human always reviews and
+  sends the appeal, which is the entire point of that one summary.</s>
+</p>
+
+<p>
+  <s>Next up: a full, live ICD-10-CM data source instead of a curated demo
+  subset, support for more insurers' plan formats, and a verified
+  deployment on Amazon Bedrock AgentCore for teams that want it running in
+  the cloud, not just on a laptop.</s>
+</p>
+
+<break time="400ms"/>
+
+<p>
+  <s>ClaimClarity — built with the Strands Agents SDK, for the Agents for
+  Humans Hackathon. Read the denial once. Know what's actually worth
+  fighting.</s>
+</p>
+
+</speak>
