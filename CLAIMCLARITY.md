@@ -47,19 +47,25 @@ and a medical record excerpt), ClaimClarity:
    `billing_error` (mechanically fixable), `documentation_gap` (needs more
    info from the provider), or `valid_denial` (genuinely excluded — not worth
    appealing) — each with cited evidence, never a guess.
-5. **Builds the physician evidence request**: for any denied line item where
+5. **Records this case and checks for a recurring insurer pattern**: appends
+   this claim's denied line items and denial reasons to a small persistent
+   history file and scans it — by plain code, never an LLM judgment — for a
+   denial reason that has recurred from the *same insurer* across 2+
+   separate cases. See **Insurer Accountability Tracker** below.
+6. **Builds the physician evidence request**: for any denied line item where
    the reason is genuinely about medical necessity — not a coding fix, not a
    flat plan exclusion — ClaimClarity works out the *specific* clinical
    documentation the insurer's own medical necessity criteria would need,
    and drafts a ready-to-send request the patient can hand to their doctor's
    office. See **Physician Letter of Medical Necessity — Evidence Request
    Builder** below.
-6. **Drafts the appeal** for everything worth appealing, citing the specific
+7. **Drafts the appeal** for everything worth appealing, citing the specific
    denial reason, the corrected code where applicable, and the plan term that
    supports coverage — and writes an honest plain-language explanation for
    anything that isn't worth appealing, instead of drafting a doomed letter
-   just to be agreeable.
-7. **Prepares the next step almost nobody knows they have**: if the internal
+   just to be agreeable. When a real insurer pattern was found, the appeal
+   drafter may cite it as supporting context.
+8. **Prepares the next step almost nobody knows they have**: if the internal
    appeal doesn't fully resolve the denial, most patients have a legal right
    to an independent **External Review** by a third party outside the
    insurer — and, separately, to file a complaint with their state
@@ -67,9 +73,10 @@ and a medical record excerpt), ClaimClarity:
    process. ClaimClarity drafts the external review request letter, adds a
    second `.ics` reminder for that (often 4-month) deadline, and — only when
    the investigation actually found a process failure, never reflexively —
-   drafts a DOI complaint letter too. See **External Review & Regulatory
+   drafts a DOI complaint letter too. When a real insurer pattern was found,
+   the escalation advisor may cite it too. See **External Review & Regulatory
    Escalation** below.
-8. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
+9. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
    what's worth appealing, what isn't and why, the deadline, and pointers to
    the physician evidence request and the escalation package. Everything
    else runs unattended.
@@ -96,6 +103,7 @@ flowchart TD
     O -->|tool call| A["extract_claim_details\n→ Claim Analyzer Agent"]
     O -->|tool call| R[create_appeal_deadline_reminder]
     O -->|tool call| I["investigate_denial\n→ Denial Investigator Agent"]
+    O -->|tool call| H["record_case_and_check_insurer_patterns\n→ pure code, no LLM"]
     O -->|tool call| V["build_physician_evidence_request\n→ Evidence Request Builder Agent"]
     O -->|tool call| P["draft_appeal_package\n→ Appeal Drafter Agent"]
     O -->|tool call| E["prepare_external_review_escalation\n→ Escalation Advisor Agent"]
@@ -104,14 +112,17 @@ flowchart TD
     ICD -->|real code validity,\nnot a guess| I
 
     E -->|reads| DOI[(state_doi_reference.json)]
+    H <-->|reads/appends| HIST[(claimclarity_history.json\ncross-run, local disk)]
 
     A -->|ClaimRecord| J[(Shared ClaimCase state)]
     I -->|DenialFindings| J
+    H -->|InsurerPatternInsight list| J
     V -->|PhysicianEvidenceRequest| J
     P -->|AppealPackage| J
     E -->|EscalationPackage| J
     J --> A
     J --> I
+    J --> H
     J --> V
     J --> P
     J --> E
@@ -119,6 +130,7 @@ flowchart TD
     J --> F1[claim_summary.md]
     J --> F2[denial_findings.md]
     J --> F3[decisions_needed.md]
+    J --> F9[insurer_pattern_report.md]
     J --> F4[appeal_package.md]
     J --> F5[appeal_deadline.ics]
     J --> F8[physician_evidence_request.md]
@@ -162,6 +174,67 @@ Design choices worth calling out:
   billing-code fix or a flat plan exclusion gets nothing, honestly, rather
   than a padded request — see **Physician Letter of Medical Necessity —
   Evidence Request Builder** below.
+- **Recurrence detection is pure code, not an LLM call.** Whether a denial
+  reason has recurred from the same insurer across recorded cases is a
+  string-matching question over a small JSON file, and that is exactly the
+  kind of thing that should be deterministic, not judged by a model — see
+  **Insurer Accountability Tracker** below.
+
+## Insurer Accountability Tracker
+
+**The problem this closes:** ClaimClarity evaluates every denial in
+isolation — but the same patient (or household) often gets multiple denials
+from the same insurer over time, and a single denial looked at alone hides a
+materially stronger fact pattern: if the *same denial reason* keeps
+recurring from the *same insurer* — a specific CPT/procedure repeatedly
+denied as "not medically necessary," or the same documentation excuse reused
+across otherwise unrelated claims — courts and regulators increasingly
+scrutinize insurers with a pattern of improper denials. "This insurer has
+denied physical therapy on this exact basis three times now" is a
+meaningfully stronger thing to put in front of an appeals reviewer or a
+state DOI complaint than "this insurer denied physical therapy" — and
+nothing about a single-claim tool can ever notice that pattern on its own.
+
+ClaimClarity now runs this as pipeline step 5, right after the denial
+investigation and before the appeal is drafted:
+
+1. It appends this case's denied line items to a small persistent local JSON
+   file (`--history-file`, default `claimclarity_history.json`) — recording
+   only the insurer name, a timestamp, each denied procedure's description
+   and denial reason, and whether it was found worth appealing. It never
+   records the patient's name, member ID, diagnosis codes, billed amounts,
+   or clinical notes — a deliberately narrow fingerprint, not a second copy
+   of the medical record.
+2. `claimclarity/tools/history.py:detect_insurer_patterns` then scans the
+   full history — by plain code, never an LLM — for any denial reason that
+   has recurred from the same insurer across 2+ *separate* recorded cases
+   (a claim denying two line items on the same basis only counts once; the
+   point is a pattern across claims over time, not padding from one claim).
+3. Any match becomes an `InsurerPatternInsight` — insurer, the recurring
+   denial reason, how many cases it spans, and the dates — written to
+   `insurer_pattern_report.md`. This file is **always** written, even on the
+   very first case ever recorded for an insurer: a graceful "no recurring
+   pattern found yet" message, not an error and not a blank page.
+4. If a real pattern was found, it's passed as extra context to the appeal
+   drafter and the escalation advisor, which may cite it as supporting
+   context (never inventing detail beyond what the pattern actually says,
+   and never letting it substitute for the claim's own evidence).
+
+**Honest limitation:** matching is exact/near-exact string comparison on
+insurer name and denial reason (the claim's own stated CARC code, or its
+literal denial reason text, or the investigation's classification if
+neither was stated) — not semantic matching. "Not medically necessary" and
+"medical necessity not established" are, to this matcher, two different
+reasons, even though a person reading both would recognize the same excuse.
+A pattern this reports is real; a pattern it doesn't report is not proof one
+doesn't exist — it just means the wording didn't line up.
+
+**Privacy:** this history is a local JSON file on the patient's own machine
+— the exact same trust boundary as every other file ClaimClarity already
+reads and writes (the source documents, `claim_summary.md`, the drafted
+appeal). Nothing in it is ever sent anywhere. Point separate `--out` runs at
+the same `--history-file` to build up pattern history across cases, or a
+fresh path to start over with no history at all.
 
 ## Physician Letter of Medical Necessity — Evidence Request Builder
 
@@ -179,8 +252,8 @@ asked precisely. ClaimClarity already investigates the denial and drafts the
 appeal *to the insurer* — this closes the gap upstream of that: the specific
 ask *to the physician* for the evidence that appeal actually needs to cite.
 
-ClaimClarity runs this as pipeline step 5, right after the denial
-investigation and before the appeal is drafted:
+ClaimClarity runs this as pipeline step 6, right after the insurer pattern
+check and before the appeal is drafted:
 
 1. The **Evidence Request Builder** agent
    (`claimclarity/agents/evidence_request_builder.py`) reads the actual
@@ -229,7 +302,7 @@ because almost no patient is told it exists. This is frequently the more
 powerful step: an external reviewer has no relationship with the insurer and
 can overturn the denial outright.
 
-ClaimClarity now runs this as pipeline step 7, unconditionally, right after
+ClaimClarity now runs this as pipeline step 8, unconditionally, right after
 the internal appeal is drafted:
 
 1. It looks up the patient's state (extracted from the documents where
@@ -278,9 +351,15 @@ claimclarity run \
 
 This streams each tool call as it happens (including the live ICD-10 lookup
 calls), then prints a summary and writes `claim_summary.md`,
-`denial_findings.md`, `decisions_needed.md`, `physician_evidence_request.md`,
-`appeal_package.md`, `appeal_deadline.ics`, `escalation_package.md`, and
-`external_review_deadline.ics` to `output/`.
+`denial_findings.md`, `decisions_needed.md`, `insurer_pattern_report.md`,
+`physician_evidence_request.md`, `appeal_package.md`, `appeal_deadline.ics`,
+`escalation_package.md`, and `external_review_deadline.ics` to `output/`.
+
+Add `--history-file PATH` to point the insurer accountability tracker at a
+specific cross-run history file (default: `./claimclarity_history.json`,
+created automatically on first use). Run the CLI again for a second claim
+from the same insurer, pointed at the same `--history-file`, to see
+`insurer_pattern_report.md` actually detect a recurring denial reason.
 
 Or run the Streamlit demo:
 
@@ -309,6 +388,7 @@ claimclarity/
     calendar.py                   @tool create_appeal_deadline_reminder / create_external_review_deadline_reminder
     icd10.py                      @tool lookup_icd10_code, search_icd10_codes
     state_doi.py                  lookup_state_doi_process (+ @tool text-report wrapper)
+    history.py                    load/append/save cross-run ClaimHistory + detect_insurer_patterns (pure code)
   agents/
     claim_analyzer.py             Sub-agent: documents -> ClaimRecord
     denial_investigator.py        Sub-agent (tool-using): ClaimRecord -> DenialFindings
@@ -323,6 +403,7 @@ agentcore_app_claimclarity.py    Optional Bedrock AgentCore Runtime entrypoint
 examples/claimclarity/           Sample denial notice + plan summary + medical record excerpt
 tests/                           Unit tests (no network) + an opt-in live-model integration test
 deploy/                          Dockerfile + AgentCore deployment notes
+claimclarity_history.json        Cross-run insurer accountability history (created on first run; local only)
 ```
 
 ## Testing
@@ -365,7 +446,14 @@ stretch goal, not a requirement — everything above runs standalone.
   code outside that subset rather than guessing. A production deployment
   should point `claimclarity/tools/icd10.py` at a complete, live ICD-10
   source.
-- This is not medical or legal advice, and it does not have access to your
+- The insurer accountability tracker's recurrence matching is exact/near-
+  exact string comparison on insurer name and denial reason, not semantic
+  matching — see **Insurer Accountability Tracker** above for exactly what
+  that misses. It also only knows about cases run on this machine against
+  the same `--history-file`; it has no visibility into anyone else's claims
+  or a broader dataset of insurer behavior.
+- This is not medical or legal advice, and beyond the compact local
+  recurrence fingerprint described above, it does not have access to your
   actual claims history or plan document beyond what you provide — for high-
   stakes or complex denials, a licensed patient advocate or attorney should
   review before you rely on this. ClaimClarity is built to make that review
@@ -383,10 +471,13 @@ stretch goal, not a requirement — everything above runs standalone.
   guessing at that state's specific process. A production deployment should
   expand `claimclarity/data/state_doi_reference.json` to full coverage.
 - **What's actually been verified, precisely:** the tool functions (including
-  ICD-10 and state DOI lookups against the bundled data), Pydantic schemas,
-  Markdown rendering, and the orchestrator's tool-call plumbing — including
-  the physician evidence request builder's wiring — are covered by 60+
-  offline tests and have run clean. The evidence request builder's own
+  ICD-10 and state DOI lookups against the bundled data, and the insurer
+  accountability history's load/append/save/recurrence-detection logic —
+  including that unrelated insurers never bleed into each other's patterns),
+  Pydantic schemas, Markdown rendering, and the orchestrator's tool-call
+  plumbing — including the physician evidence request builder's wiring — are
+  covered by 80+ offline tests and have run clean. The evidence request
+  builder's own
   judgment (which findings actually qualify as medical-necessity-related,
   the quality of a real model's drafted letter) has *not* been checked
   against a live model — only its offline wiring has, the same limitation

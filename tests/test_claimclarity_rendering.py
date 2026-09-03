@@ -5,6 +5,7 @@ from claimclarity.models import (
     ClaimRecord,
     DenialFindings,
     EscalationPackage,
+    InsurerPatternInsight,
     LineItemFinding,
 )
 from claimclarity.rendering import (
@@ -13,6 +14,7 @@ from claimclarity.rendering import (
     render_decision_summary_md,
     render_escalation_md,
     render_findings_md,
+    render_insurer_pattern_report_md,
 )
 
 CLAIM = ClaimRecord(
@@ -155,3 +157,31 @@ def test_render_escalation_md_not_eligible_case():
     md = render_escalation_md(package)
     assert "not recommended" in md
     assert "genuine plan exclusion" in md
+
+
+def test_render_insurer_pattern_report_md_no_prior_history():
+    md = render_insurer_pattern_report_md("Heartland Mutual Health Plan", [])
+    assert "Heartland Mutual Health Plan" in md
+    assert "No recurring denial pattern was found" in md
+    assert "never sent anywhere" in md
+
+
+def test_render_insurer_pattern_report_md_with_recurring_pattern():
+    insights = [
+        InsurerPatternInsight(
+            insurer_name="Heartland Mutual Health Plan",
+            denial_reason_category="CO-16",
+            procedure_description="Physical therapy",
+            occurrence_count=3,
+            dates=["2026-01-01T00:00:00+00:00", "2026-04-01T00:00:00+00:00", "2026-07-01T00:00:00+00:00"],
+            claim_numbers=["CLM-1", "CLM-2", "CLM-3"],
+        )
+    ]
+    md = render_insurer_pattern_report_md("Heartland Mutual Health Plan", insights)
+    assert "1 recurring denial pattern(s) found" in md
+    assert "CO-16" in md
+    assert "Physical therapy" in md
+    assert "3 separate recorded case(s)" in md
+    assert "CLM-1, CLM-2, CLM-3" in md
+    assert "exact/near-exact string matching" in md
+    assert "never sent anywhere" in md

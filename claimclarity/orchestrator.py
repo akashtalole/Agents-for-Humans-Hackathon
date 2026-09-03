@@ -9,6 +9,7 @@ retelling of it.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from strands import Agent, tool
@@ -21,9 +22,11 @@ from claimclarity.agents.evidence_request_builder import build_physician_evidenc
 from claimclarity.config import create_agent
 from claimclarity.models import (
     AppealPackage,
+    ClaimHistory,
     ClaimRecord,
     DenialFindings,
     EscalationPackage,
+    InsurerPatternInsight,
     PhysicianEvidenceRequest,
 )
 from claimclarity.rendering import (
@@ -32,10 +35,18 @@ from claimclarity.rendering import (
     render_decision_summary_md,
     render_escalation_md,
     render_findings_md,
+    render_insurer_pattern_report_md,
     render_physician_evidence_request_md,
 )
 from claimclarity.tools.calendar import create_appeal_deadline_reminder, create_external_review_deadline_reminder
 from claimclarity.tools.documents import read_document, save_text_file
+from claimclarity.tools.history import (
+    append_entry,
+    build_case_entry,
+    detect_insurer_patterns,
+    load_history,
+    save_history,
+)
 from claimclarity.tools.state_doi import lookup_state_doi_process
 
 ORCHESTRATOR_PROMPT = """\
@@ -48,9 +59,10 @@ For every case, always run the full pipeline in this order:
 2. extract_claim_details
 3. create_appeal_deadline_reminder
 4. investigate_denial
-5. build_physician_evidence_request
-6. draft_appeal_package
-7. prepare_external_review_escalation
+5. record_case_and_check_insurer_patterns
+6. build_physician_evidence_request
+7. draft_appeal_package
+8. prepare_external_review_escalation
 
 Then write a final answer for a patient who is stressed and has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual claim \
@@ -64,6 +76,10 @@ only, e.g. "2 of 3 items look worth appealing").
 - A direct pointer to decisions_needed.md as the place to read exactly which \
 items are worth appealing and why, and which aren't - do not enumerate them \
 yourself.
+- One line noting that insurer_pattern_report.md shows whether this same \
+insurer has a recorded pattern of denying similar claims on the same basis \
+before - a materially stronger fact pattern for an appeal or regulatory \
+complaint when it exists - without inventing any specifics yourself.
 - One line noting that physician_evidence_request.md lists any specific \
 documentation worth asking your doctor's office for before the appeal is \
 sent, if this denial turns on medical necessity - without inventing any \
@@ -87,12 +103,15 @@ class ClaimCase:
 
     documents_paths: list[str]
     output_dir: str
+    history_file: str = "claimclarity_history.json"
     documents_text: str = ""
     claim: ClaimRecord | None = None
     findings: DenialFindings | None = None
     appeal: AppealPackage | None = None
     escalation: EscalationPackage | None = None
     physician_evidence_request: PhysicianEvidenceRequest | None = None
+    history: ClaimHistory = field(default_factory=ClaimHistory)
+    insurer_pattern_insights: list[InsurerPatternInsight] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -173,6 +192,48 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def record_case_and_check_insurer_patterns() -> str:
+        """Record this case's denied line items and denial reasons to the
+        persistent cross-run insurer accountability history file
+        (case.history_file), then scan that history for denial-reason
+        patterns from the SAME insurer that have recurred across 2+
+        separate recorded cases - by plain code, never an LLM judgment.
+        Always writes insurer_pattern_report.md, even on the very first
+        case ever recorded for this insurer (a graceful "no prior history"
+        message, not an error). Must be called after investigate_denial_tool,
+        and should run before build_physician_evidence_request_tool and
+        draft_appeal_package so a real pattern can be cited as supporting
+        context in either."""
+        if case.claim is None or case.findings is None:
+            return "Error: call extract_claim_details and investigate_denial_tool first."
+        prior_history = load_history(case.history_file)
+        new_entry = build_case_entry(case.claim, case.findings, datetime.now(timezone.utc).isoformat())
+        case.history = append_entry(prior_history, new_entry)
+        save_history(case.history_file, case.history)
+
+        insurer_key = (case.claim.insurer_name or "").strip().lower()
+        case.insurer_pattern_insights = [
+            insight
+            for insight in detect_insurer_patterns(case.history)
+            if insight.insurer_name.strip().lower() == insurer_key
+        ]
+        save_text_file(
+            str(out_dir / "insurer_pattern_report.md"),
+            render_insurer_pattern_report_md(case.claim.insurer_name, case.insurer_pattern_insights),
+        )
+
+        if case.insurer_pattern_insights:
+            pattern_note = (
+                f"{len(case.insurer_pattern_insights)} recurring denial pattern(s) found from "
+                f"{case.claim.insurer_name or 'this insurer'} across your recorded case history."
+            )
+        else:
+            pattern_note = f"No recurring pattern found yet for {case.claim.insurer_name or 'this insurer'}."
+        msg = f"Recorded this case to {case.history_file}. {pattern_note} See insurer_pattern_report.md."
+        case.activity_log.append(msg)
+        return msg
+
+    @tool
     def build_physician_evidence_request_tool() -> str:
         """Work out what specific clinical documentation, if any, the
         patient's treating physician's office should be asked to send to
@@ -213,7 +274,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         investigate_denial_tool."""
         if case.claim is None or case.findings is None:
             return "Error: call extract_claim_details and investigate_denial_tool first."
-        case.appeal = draft_appeal(case.claim, case.findings)
+        case.appeal = draft_appeal(case.claim, case.findings, insurer_pattern_insights=case.insurer_pattern_insights)
         save_text_file(str(out_dir / "appeal_package.md"), render_appeal_md(case.appeal))
         msg = (
             "Appeal package written to appeal_package.md. "
@@ -236,7 +297,9 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         # falls back to the federal DEFAULT entry rather than erroring, so this
         # step runs unconditionally like every other pipeline step.
         doi_info = lookup_state_doi_process(case.claim.state)
-        case.escalation = prepare_escalation(case.claim, case.findings, case.appeal, doi_info)
+        case.escalation = prepare_escalation(
+            case.claim, case.findings, case.appeal, doi_info, insurer_pattern_insights=case.insurer_pattern_insights
+        )
         save_text_file(str(out_dir / "escalation_package.md"), render_escalation_md(case.escalation))
         save_text_file(
             str(out_dir / "decisions_needed.md"),
@@ -264,6 +327,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             extract_claim_details,
             create_appeal_deadline_reminder_tool,
             investigate_denial_tool,
+            record_case_and_check_insurer_patterns,
             build_physician_evidence_request_tool,
             draft_appeal_package,
             prepare_external_review_escalation,

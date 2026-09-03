@@ -11,6 +11,7 @@ from claimclarity.models import (
     ClaimRecord,
     DenialFindings,
     EscalationPackage,
+    InsurerPatternInsight,
     PhysicianEvidenceRequest,
 )
 
@@ -155,6 +156,69 @@ determines what's actually appropriate for your care.
 ## Your Follow-Up Checklist
 {_bullets(request.patient_followup_checklist)}
 """
+
+
+def render_insurer_pattern_report_md(insurer_name: str, insights: list[InsurerPatternInsight]) -> str:
+    """Always produces a file, even with zero insights - a first-ever case
+    for an insurer gets an honest "no pattern yet" message, not an error and
+    not a blank page."""
+    header = f"""# Insurer Accountability Pattern Report
+
+**Insurer:** {insurer_name or "_not stated_"}
+"""
+
+    if not insights:
+        return (
+            header
+            + """
+No recurring denial pattern was found for this insurer in your recorded claim history yet. This may be the \
+first case ClaimClarity has recorded for this insurer, or none of its recorded denial reasons has repeated \
+across cases. That is not a clean bill of health for the insurer - it just means there isn't enough recorded \
+history yet to say more. Run ClaimClarity again the next time this insurer denies something, and this report \
+will start showing anything that recurs.
+
+## Privacy
+This history is stored only in a local JSON file on your own machine - the same place every other file \
+ClaimClarity writes already lives - and is never sent anywhere.
+"""
+        )
+
+    def insight_block(insight: InsurerPatternInsight) -> str:
+        title = insight.denial_reason_category
+        if insight.procedure_description:
+            title += f" — {insight.procedure_description}"
+        lines = [
+            f"### {title}",
+            f"- **Occurrences:** {insight.occurrence_count} separate recorded case(s)",
+            f"- **Dates:** {', '.join(insight.dates) or '_not stated_'}",
+        ]
+        if insight.claim_numbers:
+            lines.append(f"- **Claim number(s):** {', '.join(insight.claim_numbers)}")
+        return "\n".join(lines)
+
+    blocks = "\n\n".join(insight_block(i) for i in insights)
+
+    return (
+        header
+        + f"""
+**{len(insights)} recurring denial pattern(s) found** across your recorded claim history with this insurer. A \
+denial reason repeating across separate claims is a materially stronger fact pattern for an appeal or a state \
+Department of Insurance complaint than any single denial looked at alone — courts and regulators increasingly \
+scrutinize insurers with a pattern of improper denials.
+
+{blocks}
+
+## Known limitation
+This is exact/near-exact string matching on insurer name and denial reason (the claim's own stated CARC code \
+or denial reason text, or the investigation's classification if neither was stated) — not deep semantic \
+matching. Two denials a person would recognize as "the same excuse" worded differently on the EOB will not be \
+matched here. Treat this as a starting point to verify yourself, not a complete accounting.
+
+## Privacy
+This history is stored only in a local JSON file on your own machine - the same place every other file \
+ClaimClarity writes already lives - and is never sent anywhere.
+"""
+    )
 
 
 def render_decision_summary_md(

@@ -33,6 +33,18 @@ def main(argv: list[str] | None = None) -> int:
         "multiple files.",
     )
     run_parser.add_argument("--out", default="output", help="Output directory (default: ./output)")
+    run_parser.add_argument(
+        "--history-file",
+        default="claimclarity_history.json",
+        help=(
+            "Path to the persistent cross-run insurer accountability history JSON file "
+            "(default: ./claimclarity_history.json). Kept independent of --out on purpose so history "
+            "keeps accumulating across cases even if --out changes case to case; point separate --out "
+            "runs at the same --history-file to build up pattern history, or a fresh path to start over. "
+            "A missing file just means this is the first case recorded - it is created automatically, not "
+            "an error."
+        ),
+    )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the live activity stream")
 
     subparsers.add_parser("status", help="Show which model provider ClaimClarity will use")
@@ -49,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     result = run_claim_case(
         documents_paths=args.documents,
         output_dir=args.out,
+        history_file=args.history_file,
         callback_handler=callback_handler,
     )
 
