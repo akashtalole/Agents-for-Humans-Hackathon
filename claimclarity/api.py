@@ -24,6 +24,26 @@ excerpts, so treat any real deployment of this API as needing an auth layer
 added in front of it before it touches real patient data. The one mitigation
 built in: job ids are `uuid4`, so a job cannot be guessed or enumerated -
 this is "unguessable IDs," not "access control."
+
+Human-in-the-loop approval gate: a successful run never lands on "completed"
+directly - it lands on "awaiting_approval", because the orchestrator always
+drafts appeal_package.md, and a human always has to review it (plus the
+independent critic's review and the guardrail findings, both already
+computed) before it counts as ready to send. POST .../approve moves it to
+"completed" (optionally overwriting appeal_package.md with a human-edited
+version first); POST .../reject moves it to "rejected" with a stored reason.
+Nothing here submits anything anywhere - both endpoints only change job
+bookkeeping and, for approve, the on-disk draft file.
+
+Conversational follow-up: POST/GET .../chat lets the frontend ask grounded
+follow-up questions about one job. Grounded strictly - the chat agent gets a
+fresh, tool-less Strands Agent whose only knowledge is the concatenation of
+that job's own generated .md files, never the open internet or the model's
+own training data about insurance law. It is built and called fresh per
+question (no conversation history is fed back into the model - each answer
+is grounded only in the case files, not in prior chat turns) and run off the
+event loop via the shared executor, same reasoning as the SSE queue read
+below: nothing here should block `asyncio`'s single thread.
 """
 from __future__ import annotations
 
@@ -43,8 +63,9 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from claimclarity.config import model_status
+from claimclarity.config import create_agent, model_status
 from claimclarity.pipeline import ClaimCaseResult, run_claim_case
+from claimclarity.tools.documents import save_text_file
 
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples" / "claimclarity"
 EXAMPLE_DOCUMENTS = [
@@ -77,6 +98,32 @@ FILE_MANIFEST = [
 
 _MEDIA_TYPES = {".md": "text/markdown", ".ics": "text/calendar"}
 
+CHAT_SYSTEM_PROMPT = """\
+You answer questions about this specific ClaimClarity insurance denial case \
+using ONLY the documents provided below. If the answer isn't in them, say so \
+honestly instead of guessing - and note once, if relevant, that this isn't \
+legal or medical advice. Answer in 2-4 sentences unless more detail is \
+clearly needed.
+"""
+
+_CHAT_CONTEXT_CHAR_LIMIT = 40_000
+# Drop order when the concatenated .md files would exceed the cap - least
+# essential first. appeal_review.md and appeal_guardrail.md are internal QA
+# artifacts (a second opinion ON the appeal, not case facts), so they go
+# before the primary case files; appeal_package.md, decisions_needed.md, and
+# denial_findings.md are the last things dropped, in that order.
+_CHAT_CONTEXT_DROP_ORDER = [
+    "appeal_review.md",
+    "appeal_guardrail.md",
+    "insurer_pattern_report.md",
+    "physician_evidence_request.md",
+    "escalation_package.md",
+    "claim_summary.md",
+    "appeal_package.md",
+    "decisions_needed.md",
+    "denial_findings.md",
+]
+
 app = FastAPI(title="ClaimClarity API")
 
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -93,10 +140,34 @@ class RunCreatedResponse(BaseModel):
     job_id: str
 
 
+class ApproveRequest(BaseModel):
+    edited_text: Optional[str] = None
+
+
+class RejectRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
 @app.get("/api/status", response_model=StatusResponse)
 def get_status() -> StatusResponse:
     status_text = model_status()
     return StatusResponse(status_text=status_text, ready=not status_text.startswith("No credentials"))
+
+
+def _new_job_entry() -> dict[str, Any]:
+    return {
+        "status": "running",
+        "error": None,
+        "result": None,
+        "events": queue.Queue(),
+        "output_dir": None,
+        "reject_reason": None,
+        "chat_history": [],
+    }
 
 
 def _run_job(job_id: str, documents_paths: list[str], output_dir: str) -> None:
@@ -117,7 +188,11 @@ def _run_job(job_id: str, documents_paths: list[str], output_dir: str) -> None:
             callback_handler=callback,
         )
         with _lock:
-            _jobs[job_id]["status"] = "completed"
+            # Never "completed" straight off a successful run - the
+            # orchestrator always drafts appeal_package.md, and a human
+            # always has to approve (or reject) it before it's done. See
+            # POST .../approve and .../reject below.
+            _jobs[job_id]["status"] = "awaiting_approval"
             _jobs[job_id]["result"] = result
     except Exception as exc:  # noqa: BLE001 - reported to the client, not swallowed
         with _lock:
@@ -160,19 +235,26 @@ async def create_run(
     job_id = str(uuid.uuid4())
     output_dir = workdir / "output"
     with _lock:
-        _jobs[job_id] = {
-            "status": "running",
-            "error": None,
-            "result": None,
-            "events": queue.Queue(),
-            "output_dir": output_dir,
-        }
+        entry = _new_job_entry()
+        entry["output_dir"] = output_dir
+        _jobs[job_id] = entry
 
     _executor.submit(_run_job, job_id, documents_paths, str(output_dir))
     return RunCreatedResponse(job_id=job_id)
 
 
-def _status_badge(result: ClaimCaseResult) -> dict[str, str]:
+def _status_badge(status: str, result: Optional[ClaimCaseResult]) -> Optional[dict[str, str]]:
+    # "awaiting_approval" and "rejected" get a fixed badge about the approval
+    # gate itself, regardless of what the findings say - a human reviewing
+    # this job needs to know first whether it's actionable at all. Only once
+    # a job is actually "completed" (i.e. approved) does the badge fall back
+    # to describing what the (now-final) appeal actually says.
+    if status == "awaiting_approval":
+        return {"level": "warning", "message": "Awaiting your approval before this appeal is sent."}
+    if status == "rejected":
+        return {"level": "error", "message": "Rejected — not approved for sending."}
+    if result is None:
+        return None
     case = result.case
     if case.findings is None:
         return {"level": "warning", "message": "Run did not complete denial investigation."}
@@ -206,6 +288,13 @@ def _get_job(job_id: str) -> dict[str, Any]:
     return job
 
 
+def _draft_text(output_dir: Path) -> Optional[str]:
+    appeal_path = output_dir / "appeal_package.md"
+    if not appeal_path.is_file():
+        return None
+    return appeal_path.read_text(encoding="utf-8")
+
+
 @app.get("/api/runs/{job_id}")
 def get_run(job_id: str) -> JSONResponse:
     job = _get_job(job_id)
@@ -217,13 +306,108 @@ def get_run(job_id: str) -> JSONResponse:
         "status_badge": None,
         "files": None,
         "summary_text": None,
+        "draft_text": None,
+        "review": None,
+        "guardrail": None,
+        "reject_reason": job.get("reject_reason"),
     }
-    if status == "completed":
-        result: ClaimCaseResult = job["result"]
-        payload["status_badge"] = _status_badge(result)
-        payload["files"] = _files_payload(job["output_dir"])
-        payload["summary_text"] = result.summary_text
+    # Every non-"running" status (awaiting_approval, completed, rejected,
+    # failed) gets a status badge - only "failed" has no result to build the
+    # rest of the payload from.
+    if status != "running":
+        result: Optional[ClaimCaseResult] = job.get("result")
+        payload["status_badge"] = _status_badge(status, result)
+        if result is not None:
+            payload["files"] = _files_payload(job["output_dir"])
+            payload["summary_text"] = result.summary_text
+            payload["draft_text"] = _draft_text(job["output_dir"])
+            case = result.case
+            if case.review is not None:
+                payload["review"] = case.review.model_dump()
+            if case.guardrail is not None:
+                payload["guardrail"] = case.guardrail.model_dump()
     return JSONResponse(payload)
+
+
+@app.post("/api/runs/{job_id}/approve")
+def approve_run(job_id: str, body: ApproveRequest = ApproveRequest()) -> JSONResponse:
+    job = _get_job(job_id)
+    with _lock:
+        if job["status"] != "awaiting_approval":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is '{job['status']}', not awaiting approval.",
+            )
+        if body.edited_text is not None and body.edited_text.strip():
+            save_text_file(str(job["output_dir"] / "appeal_package.md"), body.edited_text)
+        job["status"] = "completed"
+    return get_run(job_id)
+
+
+@app.post("/api/runs/{job_id}/reject")
+def reject_run(job_id: str, body: RejectRequest = RejectRequest()) -> JSONResponse:
+    job = _get_job(job_id)
+    with _lock:
+        if job["status"] != "awaiting_approval":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is '{job['status']}', not awaiting approval.",
+            )
+        job["status"] = "rejected"
+        job["reject_reason"] = body.reason
+    return get_run(job_id)
+
+
+def _build_chat_context(output_dir: Path) -> str:
+    """Concatenate every .md file this job wrote, capped at
+    `_CHAT_CONTEXT_CHAR_LIMIT` characters - drop the least essential files
+    first (`_CHAT_CONTEXT_DROP_ORDER`) rather than truncating mid-file."""
+    contents: dict[str, str] = {}
+    for path in sorted(output_dir.glob("*.md")):
+        try:
+            contents[path.name] = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+
+    total = sum(len(text) for text in contents.values())
+    for name in _CHAT_CONTEXT_DROP_ORDER:
+        if total <= _CHAT_CONTEXT_CHAR_LIMIT:
+            break
+        dropped = contents.pop(name, None)
+        if dropped is not None:
+            total -= len(dropped)
+
+    return "\n\n".join(f"--- {name} ---\n{text}" for name, text in sorted(contents.items()))
+
+
+def _ask_chat_agent(context: str, message: str) -> str:
+    agent = create_agent(system_prompt=f"{CHAT_SYSTEM_PROMPT}\n\n{context}")
+    result = agent(message)
+    return str(result)
+
+
+@app.post("/api/runs/{job_id}/chat")
+async def chat_with_run(job_id: str, body: ChatRequest) -> JSONResponse:
+    job = _get_job(job_id)
+    status = job["status"]
+    if status in ("running", "failed"):
+        raise HTTPException(status_code=400, detail=f"Cannot chat about a job that is '{status}'.")
+
+    context = _build_chat_context(job["output_dir"])
+    loop = asyncio.get_event_loop()
+    reply = await loop.run_in_executor(_executor, _ask_chat_agent, context, body.message)
+
+    with _lock:
+        job["chat_history"].append({"role": "user", "content": body.message})
+        job["chat_history"].append({"role": "assistant", "content": reply})
+
+    return JSONResponse({"reply": reply})
+
+
+@app.get("/api/runs/{job_id}/chat")
+def get_chat_history(job_id: str) -> JSONResponse:
+    job = _get_job(job_id)
+    return JSONResponse({"messages": job["chat_history"]})
 
 
 @app.get("/api/runs/{job_id}/events")

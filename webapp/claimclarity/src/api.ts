@@ -1,4 +1,10 @@
-import type { RunCreatedResponse, RunStatusResponse, StatusResponse } from './types'
+import type {
+  ChatHistoryResponse,
+  ChatReplyResponse,
+  RunCreatedResponse,
+  RunStatusResponse,
+  StatusResponse,
+} from './types'
 
 async function asJson<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
@@ -44,4 +50,32 @@ export function runFileDownloadUrl(jobId: string, filename: string): string {
 
 export function runEventsUrl(jobId: string): string {
   return `/api/runs/${jobId}/events`
+}
+
+export function approveRun(jobId: string, editedText: string | null): Promise<RunStatusResponse> {
+  return fetch(`/api/runs/${jobId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edited_text: editedText }),
+  }).then((r) => asJson<RunStatusResponse>(r))
+}
+
+export function rejectRun(jobId: string, reason: string | null): Promise<RunStatusResponse> {
+  return fetch(`/api/runs/${jobId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  }).then((r) => asJson<RunStatusResponse>(r))
+}
+
+export function fetchChatHistory(jobId: string): Promise<ChatHistoryResponse> {
+  return fetch(`/api/runs/${jobId}/chat`).then((r) => asJson<ChatHistoryResponse>(r))
+}
+
+export function sendChatMessage(jobId: string, message: string): Promise<ChatReplyResponse> {
+  return fetch(`/api/runs/${jobId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }).then((r) => asJson<ChatReplyResponse>(r))
 }

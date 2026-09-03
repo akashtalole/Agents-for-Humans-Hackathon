@@ -10,8 +10,10 @@ TASK_PROMPT = (
     "details, create an appeal deadline reminder, investigate the denial using "
     "real ICD-10 code checks, record this case and check for recurring insurer "
     "denial patterns, build the physician evidence request for anything "
-    "that turns on medical necessity, draft the appeal package, and prepare the "
-    "external review / regulatory escalation package. Then give me the final summary."
+    "that turns on medical necessity, draft the appeal package, review it and "
+    "revise if needed (bounded to one revision pass), run the appeal guardrail "
+    "check, and prepare the external review / regulatory escalation package. "
+    "Then give me the final summary."
 )
 
 

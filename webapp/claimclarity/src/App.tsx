@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRun, fetchRun, fetchStatus, runEventsUrl } from './api'
 import ActivityLog from './components/ActivityLog'
+import ApprovalPanel from './components/ApprovalPanel'
+import ChatPanel from './components/ChatPanel'
 import Header from './components/Header'
 import InputPanel from './components/InputPanel'
 import ResultsTabs from './components/ResultsTabs'
@@ -129,10 +131,31 @@ export default function App() {
           </div>
         )}
 
+        {!running && result?.status === 'awaiting_approval' && jobId && (
+          <>
+            <ApprovalPanel
+              jobId={jobId}
+              draftText={result.draft_text ?? ''}
+              review={result.review}
+              guardrail={result.guardrail}
+              onResolved={setResult}
+            />
+            <ChatPanel jobId={jobId} />
+          </>
+        )}
+
+        {!running && result?.status === 'rejected' && jobId && (
+          <>
+            {result.status_badge && <StatusBanner badge={result.status_badge} />}
+            <RejectedView reason={result.reject_reason} draftText={result.draft_text} />
+          </>
+        )}
+
         {!running && result?.status === 'completed' && jobId && (
           <>
             {result.status_badge && <StatusBanner badge={result.status_badge} />}
             <ResultsTabs jobId={jobId} files={result.files ?? []} summaryText={result.summary_text ?? ''} />
+            <ChatPanel jobId={jobId} />
           </>
         )}
 
@@ -147,5 +170,34 @@ export default function App() {
         ClaimClarity drafts; it does not submit. A human always reviews, signs, and sends the appeal.
       </footer>
     </div>
+  )
+}
+
+function RejectedView({ reason, draftText }: { reason: string | null; draftText: string | null }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        This appeal was rejected
+      </h2>
+      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+        {reason ? (
+          <>
+            <span className="font-medium">Reason given:</span> {reason}
+          </>
+        ) : (
+          <span className="italic text-slate-500 dark:text-slate-400">No reason was given.</span>
+        )}
+      </p>
+      {draftText && (
+        <div className="mt-4">
+          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Draft at time of rejection (read-only)
+          </p>
+          <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-slate-950/40 dark:text-slate-300">
+            {draftText}
+          </pre>
+        </div>
+      )}
+    </section>
   )
 }
