@@ -30,6 +30,7 @@ from glacierwatch.models import (
     CommunityAlertBulletin,
     CurrentConditions,
     HistoryEntry,
+    InspectionSchedule,
     PriorityLevel,
     RunHistory,
     SiteRiskBrief,
@@ -42,6 +43,7 @@ from glacierwatch.rendering import (
     render_community_alert_md,
     render_community_alerts_index_md,
     render_conditions_md,
+    render_inspection_schedule_md,
     render_site_profile_md,
     render_trend_report_md,
     render_watchlist_report_md,
@@ -49,6 +51,7 @@ from glacierwatch.rendering import (
 from glacierwatch.tools.documents import save_text_file
 from glacierwatch.tools.downstream import load_downstream_exposure
 from glacierwatch.tools.history import append_entries, compute_site_trends, load_history, save_history
+from glacierwatch.tools.scheduler import build_inspection_schedule
 from glacierwatch.tools.seismic import fetch_seismic_events
 from glacierwatch.tools.seismic import source_note as seismic_source_note
 from glacierwatch.tools.watchlist import load_all_sites
@@ -71,6 +74,7 @@ For every run, always execute the full pipeline in this order:
 4. record_run_history_and_detect_trends
 5. draft_watchlist_report
 6. draft_community_alerts
+7. build_field_inspection_schedule
 
 Then write a final answer for a busy official who has 30 seconds. Your tool \
 results only give you counts and filenames, not the actual rationale text \
@@ -90,6 +94,10 @@ what it portends.
 - One line stating how many community alert bulletins were drafted (state \
 the count only, from the draft_community_alerts tool result - never invent \
 settlement names or details) and a pointer to community_alerts_index.md.
+- One line stating how many stops were scheduled for the field team's \
+inspection route this week (state the count only, from the \
+build_field_inspection_schedule tool result) and a pointer to \
+inspection_schedule.md - do not enumerate the stops or their order yourself.
 - One sentence restating that this is decision support, not a prediction, \
 and that on-site expert assessment is still required for any operational \
 decision.
@@ -105,6 +113,7 @@ class WatchRun:
 
     output_dir: str
     history_file: str = "glacierwatch_history.json"
+    max_field_stops: int = 5
     sites: list[WatchSite] = field(default_factory=list)
     conditions_by_site: dict[str, CurrentConditions] = field(default_factory=dict)
     briefs: list[SiteRiskBrief] = field(default_factory=list)
@@ -112,6 +121,7 @@ class WatchRun:
     alerts: list[CommunityAlertBulletin] = field(default_factory=list)
     history: RunHistory = field(default_factory=RunHistory)
     trends: list[SiteTrend] = field(default_factory=list)
+    inspection_schedule: InspectionSchedule | None = None
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -296,6 +306,50 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         run.activity_log.append(msg)
         return msg
 
+    @tool
+    def build_field_inspection_schedule() -> str:
+        """Build this week's field team inspection route: which sites the
+        team should physically visit, capped by field-team capacity
+        (WatchRun.max_field_stops, default 5), in a sensible driving order -
+        the step that turns "these sites are priority" into an actual
+        Monday-morning work plan. Pure code, no LLM (a
+        geometric/logistics optimization over lat/long and priority level,
+        same discipline as record_run_history_and_detect_trends). Only
+        active_watch sites are candidates - historical_case_study sites are
+        past reference cases, not places to send a field team. Priority and
+        elevated sites are always candidates; a routine site showing a
+        rising trend (from record_run_history_and_detect_trends, if it has
+        already run) is included as a lower-priority bonus candidate,
+        capacity allowing. Must be called after assess_site_risk has run for
+        every site. Always writes inspection_schedule.md, even when zero
+        sites qualify - it says so plainly rather than erroring."""
+        if not run.briefs:
+            return "Error: no sites have been assessed yet. Call assess_site_risk for each site first."
+
+        active_site_ids = {s.id for s in run.sites if s.status == "active_watch"}
+        active_sites = [s for s in run.sites if s.id in active_site_ids]
+        active_briefs = [b for b in run.briefs if b.site_id in active_site_ids]
+        rising_trend_site_ids = frozenset(
+            t.site_id for t in run.trends if t.trend == TrendClassification.RISING
+        )
+
+        run.inspection_schedule = build_inspection_schedule(
+            sites=active_sites,
+            briefs=active_briefs,
+            max_stops=run.max_field_stops,
+            rising_trend_site_ids=rising_trend_site_ids,
+        )
+        save_text_file(
+            str(out_dir / "inspection_schedule.md"), render_inspection_schedule_md(run.inspection_schedule)
+        )
+
+        msg = (
+            f"Scheduled {len(run.inspection_schedule.stops)} field inspection stop(s) this week. "
+            f"See inspection_schedule.md."
+        )
+        run.activity_log.append(msg)
+        return msg
+
     agent_kwargs = dict(
         system_prompt=ORCHESTRATOR_PROMPT,
         tools=[
@@ -305,6 +359,7 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
             record_run_history_and_detect_trends,
             draft_watchlist_report_tool,
             draft_community_alerts,
+            build_field_inspection_schedule,
         ],
     )
     # Always pass callback_handler explicitly, even when it's None - see

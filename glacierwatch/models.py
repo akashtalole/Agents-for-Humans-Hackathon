@@ -181,3 +181,35 @@ class CommunityAlertBulletin(BaseModel):
         "confident, natural translation is possible - otherwise a clear '[Needs local-language review]' label, "
         "never a garbled machine translation"
     )
+
+
+class InspectionStop(BaseModel):
+    """One stop on a field team's weekly inspection route, built entirely by
+    plain code (glacierwatch/tools/scheduler.py) from this week's already-
+    validated SiteRiskBrief and WatchSite data - never an LLM judgment. This
+    is the "what does the team actually do Monday morning" translation of a
+    priority ranking into a routed, capacity-bounded work list."""
+
+    site_id: str
+    site_name: str
+    priority_level: PriorityLevel
+    why_visit: str = Field(
+        description="The site's SiteRiskBrief.rationale, carried over verbatim so a field team lead can see "
+        "why this stop is on the route without cross-referencing watchlist_report.md"
+    )
+    latitude: float
+    longitude: float
+
+
+class InspectionSchedule(BaseModel):
+    """A field team's ordered weekly inspection route: which sites (capped by
+    field-team capacity), in what visiting order. The stop order is a greedy
+    nearest-neighbor route over `stops`' lat/long, not a guaranteed-optimal
+    one - see glacierwatch/tools/scheduler.py:build_inspection_schedule for
+    the exact algorithm and its documented limitations."""
+
+    stops: list[InspectionStop] = Field(default_factory=list)
+    summary: str = Field(
+        description="One or two sentences: how many stops were scheduled out of how many candidate sites, "
+        "and the field-team capacity limit that was applied"
+    )
