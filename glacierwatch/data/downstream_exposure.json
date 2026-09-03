@@ -1,0 +1,61 @@
+{
+  "data_caveat": "The settlements, distances, and population bands below are ILLUSTRATIVE and APPROXIMATE, assembled for this hackathon demo to show what a downstream-exposure feature could look like - they are NOT a verified inventory of who actually lives where relative to each site. Distances are rough straight-line/valley estimates, not hydraulic flood-routing model output. Population bands are coarse orders of magnitude, not census figures, and are marked 'illustrative, unverified' wherever no specific cited source backs the number. Any real deployment of GlacierWatch's downstream-exposure or community-alert feature MUST replace this file with verified data from the relevant state disaster management authority, the Census of India / Nepal's national census, and validated GLOF/flood inundation modeling for each specific site - never ship illustrative figures like these to an actual village committee as if they were confirmed exposure data.",
+  "sites": {
+    "gepang-gath": [
+      {
+        "name": "Sissu",
+        "distance_km": 4,
+        "population_band": "town, roughly 1,500-3,000 (illustrative, unverified - Sissu is a known tourist/transit town in Lahaul, but this figure is not sourced to a census count)",
+        "notes": "Named directly in NRSC/press modeling of a Gepang Gath breach: floodwaters could reach Sissu in roughly 21 minutes at up to 43 km/h and 20 m depth (see glacierwatch/data/watchlist.json downstream_exposure field, sourced to Down To Earth and Deccan Herald reporting). The single most concretely documented downstream community for this site."
+      },
+      {
+        "name": "Other Chandra-valley settlements between Sissu and Manali (Gondhla, Tandi, Khoksar, and smaller hamlets)",
+        "distance_km": 15,
+        "population_band": "small hamlets, mostly <500 each (illustrative, unverified)",
+        "notes": "Press reporting on this site's risk assessment references 34 settlements threatened in total without naming most of them individually; this entry is a placeholder representing that unnamed remainder, not a specific verified list. Any real alert must replace this with the actual named settlement list from the NRSC/state assessment."
+      },
+      {
+        "name": "Manali-Leh National Highway and Atal Tunnel south approach (infrastructure, not a settlement)",
+        "distance_km": 25,
+        "population_band": "not applicable - transient traffic/tourist exposure, not a resident population",
+        "notes": "Included because the watchlist entry for this site names this highway and the Atal Tunnel approach as directly threatened infrastructure; flagged here so a bulletin can mention travel-corridor risk even though it isn't a settlement."
+      }
+    ],
+    "samudra-tapu": [
+      {
+        "name": "Chandra valley settlements downstream of the Samudra Tapu / Batal area (no site-specific settlement list published)",
+        "distance_km": 30,
+        "population_band": "unknown - illustrative only, not sourced",
+        "notes": "NRSC's formal GLOF Risk Assessment report for this lake (cited in glacierwatch/data/watchlist.json) is understood to contain detailed inundation and exposure modeling, but that report's specific settlement-level content is not reproduced here because it was not available to this project. Do not treat this entry as a real exposure list - it exists only to show the schema; a real deployment must pull the actual settlement data from NRSC's report."
+      }
+    ],
+    "south-lhonak": [
+      {
+        "name": "Chungthang town (site of the destroyed Teesta III dam)",
+        "distance_km": 60,
+        "population_band": "town, roughly 2,000-5,000 (illustrative, unverified)",
+        "notes": "The 2023 South Lhonak GLOF flood traveled roughly 50 km down the Teesta valley and destroyed the Teesta III hydropower dam near Chungthang, per the sources cited in glacierwatch/data/watchlist.json. This is a historical case-study site (already breached, lake did not reform) - retained here only as a reference for what downstream exposure along this valley looked like, not as an active-watch alert target."
+      },
+      {
+        "name": "Settlements along the Teesta valley across the four affected Sikkim districts (not individually named in the sources available to this project)",
+        "distance_km": 100,
+        "population_band": "unknown - illustrative only, not sourced",
+        "notes": "Reporting on the 2023 disaster (cited in watchlist.json) describes 42 confirmed deaths, 70+ missing, and 30+ bridges destroyed across four districts, but does not enumerate every affected settlement by name in the sources this project had access to. Historical case study, not an active monitoring target."
+      }
+    ],
+    "chorabari": [
+      {
+        "name": "Kedarnath town",
+        "distance_km": 2,
+        "population_band": "pilgrimage town, seasonal population highly variable - thousands of pilgrims can be present during yatra season (illustrative order of magnitude, not a verified count)",
+        "notes": "The 2013 Chorabari Lake (Gandhi Sarovar) breach sent a debris-laden surge directly into Kedarnath town within minutes, per the sources cited in glacierwatch/data/watchlist.json - one of the deadliest disasters in Uttarakhand's history. Historical case study (moraine largely washed away, lake did not reform), retained only as a reference case, not an active-watch alert target."
+      },
+      {
+        "name": "Rambara and other settlements along the Mandakini valley pilgrimage route below Kedarnath",
+        "distance_km": 8,
+        "population_band": "small hamlets/waystations, seasonal, mostly <500 permanent residents (illustrative, unverified)",
+        "notes": "Illustrative placeholder for the broader Mandakini-valley exposure documented in general accounts of the 2013 disaster; not individually sourced to a specific population figure."
+      }
+    ]
+  }
+}

@@ -53,6 +53,139 @@ Try it against the included example (a municipal landscaping RFP with a
 deliberately underinsured example company, so the compliance check has
 something real to catch) — see **Quickstart** below.
 
+## Teaming partner gap-fill advisor
+
+A small business frequently can't meet every RFP requirement alone — a
+missing certification, insufficient bonding or insurance capacity, no past
+performance in the specific NAICS code, no clearance — and the common outcome
+isn't teaming with a subcontractor or joint-venture partner who could fill
+exactly that gap, it's simply losing the bid. Owners without a contracts team
+rarely have the time to figure out what to search for or how to make the
+pitch, so bids that were genuinely winnable get abandoned instead.
+
+Right after the compliance check, BidWright looks at every gap it found and,
+for each one that's plausibly fillable by bringing in an outside partner (as
+opposed to a gap the company can just fix itself this week, like raising an
+insurance limit), writes a recommendation to `teaming_plan.md`:
+
+- The specific capability a partner would need to bring.
+- Concrete, actionable search guidance — SAM.gov's Subcontracting Network
+  (SubNet), the awarding agency's small business liaison, a local PTAC/APEX
+  Accelerator, or a named trade association for the trade or NAICS code —
+  never a vague "find a partner."
+- A ready-to-send draft outreach email pitching the specific arrangement.
+- A teaming risk to verify: many solicitations cap the percentage of work
+  that may be subcontracted, or require the prime to self-perform a minimum
+  percentage — BidWright flags this as something to check against the RFP's
+  actual limit rather than guessing one.
+
+BidWright never invents a specific company as a prospective partner — it has
+no partner directory, so it gives search guidance, not fabricated leads — and
+it never claims a gap is fillable by teaming when it plainly isn't (a
+security clearance the RFP requires the *prime* itself to hold, for example,
+can't be borrowed from a subcontractor). If none of the gaps found are
+teaming-fillable, or there were no gaps at all, `teaming_plan.md` still gets
+written and says so plainly instead of being skipped or padded with filler.
+When a teaming plan does have recommendations, the drafted proposal's open
+questions point to it, so the decision to team never gets buried in a
+different file than the rest of what needs the owner's attention.
+
+## Amendment / addendum impact analysis
+
+Government and commercial RFPs routinely get amended after they're first
+posted — a deadline pushed back a week, a requirement added or dropped, a
+clarifying Q&A response, an attachment swapped out. Agencies and buyers
+publish these amendments on the same portal as the original RFP, but a small
+business without a dedicated contracts team watching that portal every day
+frequently never sees them — and ends up submitting a compliant proposal
+against a *stale* version of the requirements, which is exactly the kind of
+technicality that gets a bid thrown out or leaves money on the table.
+
+If you have an amendment/addendum document for an RFP, pass it with
+`--amendment`:
+
+```bash
+bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.json \
+  --amendment path/to/amendment_1.pdf --out output
+```
+
+BidWright diffs the amendment against the already-extracted requirements (and
+the compliance report, if one exists) and reports, in `amendment_impact.md`:
+
+- A plain-language summary of what actually changed, with an urgency rating
+  (`blocking` / `warning` / `info`).
+- Whether the submission deadline moved, and to what.
+- Exactly what's new, removed, or modified — not just "insurance changed" but
+  the specific requirement, what it used to say, and what it says now.
+- Whether the amendment invalidates anything a prior compliance check marked
+  "met," or changes a gap it had already flagged.
+- Which sections of an already-drafted proposal, if any, are now stale and
+  need rework.
+- A concrete recommendation for a busy owner.
+
+If the amendment is significant, that same information also gets appended as
+a clearly flagged **"AMENDMENT ALERT"** section at the top of
+`decisions_needed.md`, so it can't get buried under an old compliance report
+someone already skimmed. A trivial amendment (e.g. a typo fix) is recorded in
+`amendment_impact.md` but does not clutter `decisions_needed.md` with an
+alert — the goal is to interrupt the owner for things that actually need a
+decision, same as the compliance gaps.
+
+`--amendment` is entirely optional. Omit it and BidWright behaves exactly as
+it always has — this is additive, not a required step, because most RFPs
+never get amended.
+
+## Portfolio Insights: cross-bid institutional memory
+
+Small businesses that run BidWright — or just bid generally — don't bid
+once; they bid repeatedly, RFP after RFP, over years. But every run today is
+stateless: nobody notices that the same compliance gap ("insufficient
+bonding capacity," "missing a specific certification") keeps recurring
+across bid after bid, quietly costing the company wins, because nothing
+persists across runs to notice the pattern. A single bid's compliance report
+genuinely can't see that — it only has this one RFP in front of it.
+
+Right after the compliance check, BidWright records this bid's outcome
+(project identity, overall status, and each gap's requirement description +
+severity — not the full gap detail) to a small persistent JSON file, and
+scans recent history for gap requirements that have shown up on at least 2
+of the company's last 5 recorded bids. The result is written to
+`portfolio_insights.md`:
+
+- How many bids are on record and how many of the recent ones were scanned.
+- Every recurring gap: which requirement, its most recent severity, how many
+  of the recent bids it appeared on, and the first and most recent RFP it
+  showed up on.
+
+This is deterministic, pure-code pattern-matching over structured records —
+never an LLM guessing at a pattern — and it's additive: it runs on every bid
+automatically, using `bidwright_history.json` in the current directory by
+default. Point every run for the same company at the same file with
+`--history-file` if you want it somewhere else, or to keep separate history
+per company/division:
+
+```bash
+bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.json \
+  --history-file ~/bidwright/acme_landscaping_history.json --out output
+```
+
+On the very first bid BidWright ever records for a company,
+`portfolio_insights.md` says so plainly — "not enough bid history yet" — it
+is never treated as an error, and no recurrence is ever fabricated to fill
+the file. Missing or corrupted history files are treated the same way: a
+fresh start, not a crash — this run's data still gets recorded going
+forward.
+
+**Honest limitation:** recurrence detection is exact-text matching on the
+gap requirement description, not semantic. "Insufficient bonding capacity"
+and "bonding capacity too low" describe the same real problem but won't be
+counted as the same recurring gap without a normalization step this feature
+deliberately doesn't attempt — a simple, predictable rule that's upfront
+about what it misses beats a fuzzy matcher whose behavior nobody could
+reliably predict. If this turns out to matter in practice, that
+normalization step belongs in `bidwright/tools/history.py`, isolated from
+everything else.
+
 ## Architecture
 
 BidWright is a Strands **"agents as tools"** multi-agent system: an
@@ -67,21 +200,35 @@ flowchart TD
     O -->|tool call| L[load_rfp_and_profile]
     O -->|tool call| A["extract_rfp_requirements\n→ RFP Analyzer Agent"]
     O -->|tool call| C["check_company_compliance\n→ Compliance Checker Agent"]
+    O -->|tool call| H["record_bid_and_check_portfolio_trends\n(pure code, cross-run history)"]
+    O -->|tool call| T["draft_teaming_plan_tool\n→ Teaming Advisor Agent"]
     O -->|tool call| R[create_submission_deadline_reminder]
+    O -->|tool call| M["analyze_rfp_amendment (optional)\n→ Amendment Analyzer Agent"]
     O -->|tool call| P["draft_proposal_document\n→ Proposal Drafter Agent"]
 
     A -->|RFPRequirements| J[(Shared BidJob state)]
     C -->|ComplianceReport| J
+    H -->|BidHistory + RecurringGapInsight| J
+    T -->|TeamingPlan| J
+    M -->|AmendmentImpact| J
     P -->|ProposalDraft| J
     J --> A
     J --> C
+    J --> H
+    J --> T
+    J --> M
     J --> P
+
+    H <-->|append/load JSON| HF[(bidwright_history.json\ncross-run, on disk)]
 
     J --> F1[requirements.md]
     J --> F2[compliance_report.md]
     J --> F3[decisions_needed.md]
     J --> F4[proposal_draft.md]
     J --> F5[submission_deadline.ics]
+    J --> F6["amendment_impact.md (if --amendment given)"]
+    J --> F7[teaming_plan.md]
+    J --> F8[portfolio_insights.md]
 
     O -->|plain-English summary| U
     F3 -->|only the blocking items| U
@@ -99,6 +246,11 @@ Design choices worth calling out:
   the model.** `decisions_needed.md` is built deterministically from the
   `ComplianceReport` in `bidwright/rendering.py`, so that guarantee doesn't
   depend on the orchestrator remembering to keep its promise.
+- **Cross-run memory is pure code, not the model's memory.** Portfolio
+  Insights persists to a JSON file and detects recurrence with plain string
+  matching in `bidwright/tools/history.py` — no LLM call is in that loop, so
+  a recurring gap is either actually there in the recorded data or it isn't,
+  never a model's fuzzy recollection of "didn't we see this before?"
 - **Model-provider agnostic.** `bidwright/config.py` picks Anthropic's API
   directly (for local/dev, an `ANTHROPIC_API_KEY`) or Amazon Bedrock
   (no key, just AWS credentials — the path AgentCore deployments use)
@@ -120,7 +272,10 @@ bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.js
 
 This streams each tool call as it happens, then prints a summary and writes
 `requirements.md`, `compliance_report.md`, `decisions_needed.md`,
-`proposal_draft.md`, and `submission_deadline.ics` to `output/`.
+`portfolio_insights.md`, `teaming_plan.md`, `proposal_draft.md`, and
+`submission_deadline.ics` to `output/` (plus `amendment_impact.md` if
+`--amendment` was given), and appends this run to `bidwright_history.json`
+(override with `--history-file`).
 
 Or run the Streamlit demo:
 
@@ -144,9 +299,12 @@ bidwright/
   tools/
     documents.py             @tool read_document, save_text_file
     calendar.py               @tool create_deadline_reminder (.ics generation)
+    history.py                 Pure code: cross-bid history load/append/save + recurrence detection
   agents/
     rfp_analyzer.py           Sub-agent: RFP text -> RFPRequirements
     compliance_checker.py     Sub-agent: RFPRequirements + profile -> ComplianceReport
+    amendment_analyzer.py     Sub-agent: RFPRequirements + amendment text -> AmendmentImpact
+    teaming_advisor.py        Sub-agent: RFPRequirements + ComplianceReport -> TeamingPlan
     proposal_drafter.py       Sub-agent: -> ProposalDraft
   orchestrator.py             Orchestrator Agent (agents-as-tools) + shared BidJob state
   pipeline.py                 run_bid_job() convenience wrapper used by CLI/UI/AgentCore

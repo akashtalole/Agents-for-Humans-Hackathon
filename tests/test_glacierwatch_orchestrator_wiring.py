@@ -11,8 +11,19 @@ from pathlib import Path
 import httpx
 
 import glacierwatch.orchestrator as orchestrator_module
-from glacierwatch.models import PriorityLevel, SiteRiskBrief, WatchlistReport
+from glacierwatch.models import (
+    CommunityAlertBulletin,
+    CurrentConditions,
+    DownstreamSettlement,
+    HistoryEntry,
+    PriorityLevel,
+    RunHistory,
+    SeismicEvent,
+    SiteRiskBrief,
+    WatchlistReport,
+)
 from glacierwatch.orchestrator import WatchRun, build_orchestrator
+from glacierwatch.tools.history import save_history
 
 FAKE_OPEN_METEO_RESPONSE = {
     "daily": {
@@ -158,3 +169,311 @@ def test_explicit_none_callback_handler_is_actually_silent(tmp_path: Path):
     run = WatchRun(output_dir=str(tmp_path))
     quiet_orchestrator = build_orchestrator(run, callback_handler=None)
     assert quiet_orchestrator.callback_handler is null_callback_handler
+
+
+def _fake_draft_community_alert(brief, settlements):
+    return CommunityAlertBulletin(
+        site_id=brief.site_id,
+        site_name=brief.site_name,
+        priority_level=brief.priority_level,
+        situation_summary=f"fake situation summary for {brief.site_id}",
+        recommended_actions=["Review local evacuation routes."],
+        settlements_to_notify=settlements,
+        alert_text_en="fake alert text",
+        alert_text_local="[Needs local-language review - no confident translation available]",
+    )
+
+
+def test_draft_community_alerts_happy_path_writes_expected_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "draft_community_alert", _fake_draft_community_alert)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.PRIORITY,
+            rationale="fake rationale", active_triggers=["fake trigger"], recommended_action="fake action",
+        ),
+        SiteRiskBrief(
+            site_id="chorabari", site_name="Chorabari Lake (Gandhi Sarovar)", priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "Drafted 1 community alert bulletin" in result
+    assert "community_alerts_index.md" in result
+
+    assert (tmp_path / "community_alert_gepang-gath.md").exists()
+    assert not (tmp_path / "community_alert_chorabari.md").exists()
+    assert (tmp_path / "community_alerts_index.md").exists()
+
+    alert_md = (tmp_path / "community_alert_gepang-gath.md").read_text()
+    assert "Sissu" in alert_md
+    assert "decision-support triage tool, not a prediction system" in alert_md
+
+    index_md = (tmp_path / "community_alerts_index.md").read_text()
+    assert "Gepang Gath Lake" in index_md
+    assert "Chorabari" not in index_md
+
+    assert len(run.alerts) == 1
+    assert run.alerts[0].site_id == "gepang-gath"
+
+
+def test_draft_community_alerts_zero_priority_sites_is_graceful_noop(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "draft_community_alert", _fake_draft_community_alert)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="south-lhonak", site_name="South Lhonak Lake", priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "no priority sites this week" in result.lower()
+    assert "no community alert bulletins drafted" in result.lower()
+
+    assert not (tmp_path / "community_alert_south-lhonak.md").exists()
+    assert not (tmp_path / "community_alerts_index.md").exists()
+    assert run.alerts == []
+
+
+def test_draft_community_alerts_before_any_assessment_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.draft_community_alerts())
+    assert "Error" in result
+    assert "assess_site_risk" in result
+
+
+def _run_with_assessed_gepang_gath(tmp_path: Path, *, mm: float, quake_count: int, history_file: str | None = None):
+    run = WatchRun(output_dir=str(tmp_path), **({"history_file": history_file} if history_file else {}))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.conditions_by_site["gepang-gath"] = CurrentConditions(
+        site_id="gepang-gath",
+        as_of="2026-08-29T00:00:00Z",
+        max_daily_precipitation_mm=mm,
+        nearby_seismic_events=[
+            SeismicEvent(time="2026-08-26T00:00:00Z", magnitude=4.0, distance_km=50.0, place="near X")
+            for _ in range(quake_count)
+        ],
+        weather_source_note="test",
+        seismic_source_note="test",
+    )
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.ELEVATED,
+            rationale="fake rationale", recommended_action="fake action",
+        )
+    ]
+    return run, orchestrator
+
+
+def test_record_run_history_and_detect_trends_before_assessment_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path), history_file=str(tmp_path / "history.json"))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Error" in result
+    assert "assess_site_risk" in result
+    assert not (tmp_path / "history.json").exists()
+    assert not (tmp_path / "trend_report.md").exists()
+
+
+def test_record_run_history_fresh_history_is_insufficient_history_not_an_error(tmp_path: Path):
+    history_path = tmp_path / "history.json"
+    run, orchestrator = _run_with_assessed_gepang_gath(tmp_path, mm=50.0, quake_count=1, history_file=str(history_path))
+
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Error" not in result
+    assert "Recorded 1 site(s)" in result
+    assert "0 of 1 site(s) show a rising trend" in result
+
+    assert history_path.exists()
+    assert (tmp_path / "trend_report.md").exists()
+    trend_md = (tmp_path / "trend_report.md").read_text()
+    assert "insufficient_history".upper().replace("_", " ") in trend_md.upper()
+    assert "not a forecast" in trend_md.lower()
+
+    assert len(run.trends) == 1
+    assert run.trends[0].trend.value == "insufficient_history"
+    assert len(run.history.entries) == 1
+
+
+def test_record_run_history_happy_path_detects_rising_trend_from_synthetic_history(tmp_path: Path):
+    history_path = tmp_path / "history.json"
+    # Two prior runs of climbing rainfall and seismic counts, written directly
+    # to disk to simulate a multi-week deployment history.
+    save_history(
+        str(history_path),
+        RunHistory(
+            entries=[
+                HistoryEntry(
+                    site_id="gepang-gath", run_at="2026-08-01T00:00:00Z", max_daily_precipitation_mm=10.0,
+                    nearby_seismic_events=0, priority_level=PriorityLevel.ROUTINE,
+                ),
+                HistoryEntry(
+                    site_id="gepang-gath", run_at="2026-08-08T00:00:00Z", max_daily_precipitation_mm=30.0,
+                    nearby_seismic_events=1, priority_level=PriorityLevel.ROUTINE,
+                ),
+            ]
+        ),
+    )
+    run, orchestrator = _run_with_assessed_gepang_gath(tmp_path, mm=80.0, quake_count=3, history_file=str(history_path))
+
+    result = _tool_text(orchestrator.tool.record_run_history_and_detect_trends())
+    assert "Recorded 1 site(s)" in result
+    assert "1 of 1 site(s) show a rising trend" in result
+
+    assert len(run.trends) == 1
+    assert run.trends[0].trend.value == "rising"
+    assert run.trends[0].site_name == "Gepang Gath Lake"
+    # The two prior runs plus this one were persisted back to disk.
+    assert len(run.history.entries) == 3
+    reloaded = RunHistory.model_validate_json(history_path.read_text())
+    assert len(reloaded.entries) == 3
+
+    trend_md = (tmp_path / "trend_report.md").read_text()
+    assert "RISING" in trend_md
+    assert "Gepang Gath Lake" in trend_md
+
+    # And the watchlist report, drafted after, surfaces the same rising
+    # trend for a site that isn't yet at priority level this week.
+    monkeypatch_report = WatchlistReport(briefs=run.briefs, overall_summary="0 site(s) at priority level.")
+    from glacierwatch.rendering import render_watchlist_report_md
+
+    report_md = render_watchlist_report_md(monkeypatch_report, run.trends)
+    assert "Trend early-warning" in report_md
+    assert "Gepang Gath Lake" in report_md
+
+
+def test_build_field_inspection_schedule_before_any_assessment_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.build_field_inspection_schedule())
+    assert "Error" in result
+    assert "assess_site_risk" in result
+    assert not (tmp_path / "inspection_schedule.md").exists()
+
+
+def test_build_field_inspection_schedule_happy_path_caps_and_orders_by_capacity(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path), max_field_stops=2)
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+
+    active_sites = [s for s in run.sites if s.status == "active_watch"]
+    assert len(active_sites) == 2
+    run.briefs = [
+        SiteRiskBrief(
+            site_id=site.id, site_name=site.name, priority_level=PriorityLevel.PRIORITY,
+            rationale=f"fake rationale for {site.id}", active_triggers=["fake trigger"],
+            recommended_action="fake action",
+        )
+        for site in active_sites
+    ] + [
+        SiteRiskBrief(
+            site_id="south-lhonak", site_name="South Lhonak Lake", priority_level=PriorityLevel.ROUTINE,
+            rationale="historical case study", recommended_action="none",
+        ),
+        SiteRiskBrief(
+            site_id="chorabari", site_name="Chorabari Lake (Gandhi Sarovar)", priority_level=PriorityLevel.ROUTINE,
+            rationale="historical case study", recommended_action="none",
+        ),
+    ]
+
+    result = _tool_text(orchestrator.tool.build_field_inspection_schedule())
+    assert "Scheduled 2 field inspection stop(s)" in result
+    assert "inspection_schedule.md" in result
+
+    assert (tmp_path / "inspection_schedule.md").exists()
+    assert run.inspection_schedule is not None
+    assert len(run.inspection_schedule.stops) == 2
+    # Historical case study sites are never candidates, even at capacity 2
+    # with only 2 active_watch sites competing for the 2 slots.
+    scheduled_ids = {s.site_id for s in run.inspection_schedule.stops}
+    assert scheduled_ids == {site.id for site in active_sites}
+    assert "south-lhonak" not in scheduled_ids
+    assert "chorabari" not in scheduled_ids
+
+    schedule_md = (tmp_path / "inspection_schedule.md").read_text()
+    assert "decision-support triage tool, not a prediction system" in schedule_md
+    assert "Stop 1" in schedule_md
+
+
+def test_build_field_inspection_schedule_caps_below_priority_site_count(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path), max_field_stops=1)
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    active_sites = [s for s in run.sites if s.status == "active_watch"]
+    run.briefs = [
+        SiteRiskBrief(
+            site_id=site.id, site_name=site.name, priority_level=PriorityLevel.PRIORITY,
+            rationale=f"fake rationale for {site.id}", recommended_action="fake action",
+        )
+        for site in active_sites
+    ]
+
+    result = _tool_text(orchestrator.tool.build_field_inspection_schedule())
+    assert "Scheduled 1 field inspection stop(s)" in result
+    assert len(run.inspection_schedule.stops) == 1
+
+    schedule_md = (tmp_path / "inspection_schedule.md").read_text()
+    assert "did not fit within capacity" in schedule_md
+
+
+def test_build_field_inspection_schedule_zero_qualifying_sites_is_graceful_noop(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    active_sites = [s for s in run.sites if s.status == "active_watch"]
+    run.briefs = [
+        SiteRiskBrief(
+            site_id=site.id, site_name=site.name, priority_level=PriorityLevel.ROUTINE,
+            rationale=f"fake rationale for {site.id}", recommended_action="fake action",
+        )
+        for site in active_sites
+    ]
+
+    result = _tool_text(orchestrator.tool.build_field_inspection_schedule())
+    assert "Error" not in result
+    assert "Scheduled 0 field inspection stop(s)" in result
+
+    assert (tmp_path / "inspection_schedule.md").exists()
+    assert run.inspection_schedule is not None
+    assert run.inspection_schedule.stops == []
+
+    schedule_md = (tmp_path / "inspection_schedule.md").read_text()
+    assert "no inspection schedule was built" in schedule_md.lower()
+
+
+def test_build_field_inspection_schedule_includes_rising_trend_routine_site_as_bonus(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path), max_field_stops=5)
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    active_sites = [s for s in run.sites if s.status == "active_watch"]
+    priority_site, routine_site = active_sites[0], active_sites[1]
+    run.briefs = [
+        SiteRiskBrief(
+            site_id=priority_site.id, site_name=priority_site.name, priority_level=PriorityLevel.PRIORITY,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+        SiteRiskBrief(
+            site_id=routine_site.id, site_name=routine_site.name, priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+    from glacierwatch.models import SiteTrend, TrendClassification
+
+    run.trends = [
+        SiteTrend(
+            site_id=routine_site.id, site_name=routine_site.name, trend=TrendClassification.RISING,
+            runs_considered=3, explanation="fake rising trend",
+        )
+    ]
+
+    result = _tool_text(orchestrator.tool.build_field_inspection_schedule())
+    assert "Scheduled 2 field inspection stop(s)" in result
+    scheduled_ids = {s.site_id for s in run.inspection_schedule.stops}
+    assert scheduled_ids == {priority_site.id, routine_site.id}

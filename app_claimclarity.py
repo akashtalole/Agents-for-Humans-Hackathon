@@ -107,7 +107,14 @@ if result is not None:
         st.info("Nothing here looks worth appealing — see the explanation for why.")
 
     tabs = st.tabs(
-        ["Decisions Needed", "Claim Summary", "Denial Findings", "Appeal Package", "Agent's Own Summary (unverified)"]
+        [
+            "Decisions Needed",
+            "Claim Summary",
+            "Denial Findings",
+            "Appeal Package",
+            "External Review & Escalation",
+            "Agent's Own Summary (unverified)",
+        ]
     )
     output_dir: Path = st.session_state.output_dir
 
@@ -138,6 +145,18 @@ if result is not None:
         st.markdown(content)
         st.download_button("Download appeal_package.md", content, file_name="appeal_package.md")
     with tabs[4]:
+        content = _read("escalation_package.md")
+        st.markdown(content)
+        st.download_button("Download escalation_package.md", content, file_name="escalation_package.md")
+        review_ics_path = output_dir / "external_review_deadline.ics"
+        if review_ics_path.exists():
+            st.download_button(
+                "Download external review deadline reminder (.ics)",
+                data=review_ics_path.read_bytes(),
+                file_name="external_review_deadline.ics",
+                mime="text/calendar",
+            )
+    with tabs[5]:
         st.caption(
             "This is the orchestrator's own free-text reply, shown for transparency. "
             "It can occasionally misstate specifics even when every generated file above "
