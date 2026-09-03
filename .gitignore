@@ -223,6 +223,10 @@ __marimo__/
 # GlacierWatch persistent run-history file (default path, repo root)
 /glacierwatch_history.json
 
+# Web UI frontend build artifacts (built fresh by npm/Docker, not committed)
+webapp/*/node_modules/
+webapp/*/dist/
+
 # Claude Code local state (e.g. subagent worktree checkouts)
 /.claude/
 
