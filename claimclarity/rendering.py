@@ -11,8 +11,10 @@ from claimclarity.models import (
     ClaimRecord,
     DenialFindings,
     EscalationPackage,
+    GuardrailResult,
     InsurerPatternInsight,
     PhysicianEvidenceRequest,
+    ReviewResult,
 )
 
 
@@ -90,6 +92,38 @@ def render_appeal_md(package: AppealPackage) -> str:
 
 ## Open Questions For You
 {_bullets(package.open_questions)}
+"""
+
+
+def render_review_md(review: ReviewResult) -> str:
+    verdict = "✅ Approved — no concrete issues found." if review.approved else "⚠️ Not approved — issues found."
+    return f"""# Appeal Package Review
+
+## Verdict
+{verdict}
+
+{review.summary}
+
+## Issues
+{_bullets(review.issues)}
+"""
+
+
+def render_guardrail_md(result: GuardrailResult) -> str:
+    verdict = "✅ Passed — no guardrail violations found." if result.passed else "⛔ Failed — guardrail violation(s) found."
+
+    def finding_block(f) -> str:
+        return f"### {f.rule}\n" f'- **Excerpt:** "{f.excerpt}"\n' f"- **Why this is flagged:** {f.explanation}\n"
+
+    findings_md = "\n".join(finding_block(f) for f in result.findings) or "_None._"
+
+    return f"""# Appeal Guardrail Check
+
+## Verdict
+{verdict}
+
+## Findings
+{findings_md}
 """
 
 

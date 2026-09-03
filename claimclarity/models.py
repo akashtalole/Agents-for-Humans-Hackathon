@@ -211,6 +211,35 @@ class InsurerPatternInsight(BaseModel):
     claim_numbers: list[str] = Field(default_factory=list)
 
 
+class ReviewResult(BaseModel):
+    """The critic/reviewer agent's verdict on a drafted AppealPackage, checked
+    against the DenialFindings it was drafted from - see
+    agents/appeal_reviewer.py's system prompt for exactly what it is and
+    isn't allowed to flag."""
+
+    approved: bool
+    issues: list[str] = Field(default_factory=list)
+    summary: str
+
+
+class GuardrailFinding(BaseModel):
+    """One concrete guardrail violation found in a drafted appeal letter -
+    either by the deterministic regex scan or the agent-based check. See
+    tools/guardrail.py."""
+
+    rule: str
+    excerpt: str
+    explanation: str
+
+
+class GuardrailResult(BaseModel):
+    """The combined result of running every guardrail check against a
+    drafted appeal letter - see tools/guardrail.py:run_guardrail_check."""
+
+    passed: bool
+    findings: list[GuardrailFinding] = Field(default_factory=list)
+
+
 class EscalationPackage(BaseModel):
     """What to do after the internal appeal: independent External Review, and,
     only where the findings actually support it, a state DOI complaint about

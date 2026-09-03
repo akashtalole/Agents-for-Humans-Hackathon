@@ -15,6 +15,7 @@ from pathlib import Path
 from strands import Agent, tool
 
 from claimclarity.agents.appeal_drafter import draft_appeal
+from claimclarity.agents.appeal_reviewer import review_appeal
 from claimclarity.agents.claim_analyzer import analyze_claim
 from claimclarity.agents.denial_investigator import investigate_denial
 from claimclarity.agents.escalation_advisor import prepare_escalation
@@ -26,8 +27,10 @@ from claimclarity.models import (
     ClaimRecord,
     DenialFindings,
     EscalationPackage,
+    GuardrailResult,
     InsurerPatternInsight,
     PhysicianEvidenceRequest,
+    ReviewResult,
 )
 from claimclarity.rendering import (
     render_appeal_md,
@@ -35,11 +38,14 @@ from claimclarity.rendering import (
     render_decision_summary_md,
     render_escalation_md,
     render_findings_md,
+    render_guardrail_md,
     render_insurer_pattern_report_md,
     render_physician_evidence_request_md,
+    render_review_md,
 )
 from claimclarity.tools.calendar import create_appeal_deadline_reminder, create_external_review_deadline_reminder
 from claimclarity.tools.documents import read_document, save_text_file
+from claimclarity.tools.guardrail import run_guardrail_check
 from claimclarity.tools.history import (
     append_entry,
     build_case_entry,
@@ -62,7 +68,28 @@ For every case, always run the full pipeline in this order:
 5. record_case_and_check_insurer_patterns
 6. build_physician_evidence_request
 7. draft_appeal_package
-8. prepare_external_review_escalation
+8. review_appeal_package
+9. check_appeal_guardrail
+10. prepare_external_review_escalation
+
+After draft_appeal_package, always call review_appeal_package: a second, \
+independent pass that fact-checks the drafted appeal against the denial \
+findings it was supposed to come from - a wrong code, an unsupported claim, \
+or an overstated certainty about the outcome, never prose style. If it finds \
+real issues, revise by calling draft_appeal_package again incorporating that \
+feedback, then call review_appeal_package once more to confirm the revision \
+addressed them. This loop is capped at exactly one revision pass by plain \
+code, not by your own judgment - a second call to review_appeal_package after \
+a revision already happened returns immediately without reviewing again, so \
+proceed to the next step at that point regardless of the verdict.
+
+After review_appeal_package, always call check_appeal_guardrail: a \
+deterministic and agent-based check of the CURRENT appeal_package.md for \
+language that promises a guaranteed outcome, states an unsupported medical \
+fact, or gives legal advice. This always runs exactly once, after whatever \
+revision happened above - it is not part of the bounded revision loop and \
+does not get re-run if it finds something; a human reviews its findings \
+before the appeal is sent.
 
 Then write a final answer for a patient who is stressed and has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual claim \
@@ -84,6 +111,12 @@ complaint when it exists - without inventing any specifics yourself.
 documentation worth asking your doctor's office for before the appeal is \
 sent, if this denial turns on medical necessity - without inventing any \
 specifics yourself.
+- One line noting how many issues (a count only, from appeal_review.md) an \
+independent review pass found in the drafted appeal, and that it's in \
+appeal_review.md.
+- One line noting how many guardrail findings (a count only, from \
+appeal_guardrail.md) were found in the appeal letter, and that it's in \
+appeal_guardrail.md.
 - One line noting that decisions_needed.md and escalation_package.md also \
 cover what to do if the internal appeal doesn't fully resolve this - \
 independent external review, and possibly a state Department of Insurance \
@@ -110,6 +143,9 @@ class ClaimCase:
     appeal: AppealPackage | None = None
     escalation: EscalationPackage | None = None
     physician_evidence_request: PhysicianEvidenceRequest | None = None
+    review: ReviewResult | None = None
+    review_revision_count: int = 0
+    guardrail: GuardrailResult | None = None
     history: ClaimHistory = field(default_factory=ClaimHistory)
     insurer_pattern_insights: list[InsurerPatternInsight] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
@@ -284,12 +320,62 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def review_appeal_package() -> str:
+        """Review the drafted appeal package against the denial investigation
+        findings for accuracy - does it cite the wrong code, claim something
+        the findings don't support, or overstate certainty about the outcome.
+        Call after draft_appeal_package. If it finds real issues, revise by
+        calling draft_appeal_package again with this feedback in mind, then
+        call this tool again - but this is capped at ONE revision pass;
+        calling it again after a revision already happened returns
+        immediately without re-reviewing, so the loop cannot run away."""
+        if case.appeal is None:
+            return "Error: call draft_appeal_package first."
+        if case.review_revision_count >= 1:
+            msg = "Maximum review-revision pass (1) already used; proceeding without a further review."
+            case.activity_log.append(msg)
+            return msg
+        case.review = review_appeal(case.appeal, case.findings)
+        save_text_file(str(out_dir / "appeal_review.md"), render_review_md(case.review))
+        if not case.review.approved:
+            case.review_revision_count += 1
+            msg = (
+                f"Review found {len(case.review.issues)} issue(s) - revise appeal_package.md by "
+                "calling draft_appeal_package again incorporating this feedback, then call "
+                "review_appeal_package once more. Issues saved to appeal_review.md."
+            )
+        else:
+            msg = "Review passed with no issues. See appeal_review.md."
+        case.activity_log.append(msg)
+        return msg
+
+    @tool
+    def check_appeal_guardrail() -> str:
+        """Run guardrail checks (deterministic pattern scan plus a focused
+        agent check) against the CURRENT appeal_package.md content, looking
+        for language that promises a guaranteed outcome, states an
+        unsupported medical fact, or gives legal advice. Must be called after
+        review_appeal_package, once - a human reviews any findings before the
+        appeal is sent."""
+        appeal_path = out_dir / "appeal_package.md"
+        if case.appeal is None or not appeal_path.exists():
+            return "Error: call draft_appeal_package (and review_appeal_package) first."
+        appeal_text = appeal_path.read_text(encoding="utf-8")
+        case.guardrail = run_guardrail_check(appeal_text)
+        save_text_file(str(out_dir / "appeal_guardrail.md"), render_guardrail_md(case.guardrail))
+        msg = (
+            f"Guardrail check complete: {len(case.guardrail.findings)} finding(s). See appeal_guardrail.md."
+        )
+        case.activity_log.append(msg)
+        return msg
+
+    @tool
     def prepare_external_review_escalation() -> str:
         """Determine whether this denial is worth escalating past the internal
         appeal - to an independent External Review and, where the findings
         actually show a process failure, a state Department of Insurance
         complaint - and draft the request letter(s). This is always the final
-        pipeline step; call it after draft_appeal_package."""
+        pipeline step; call it after check_appeal_guardrail."""
         if case.claim is None or case.findings is None or case.appeal is None:
             return "Error: call extract_claim_details, investigate_denial_tool, and draft_appeal_package first."
         # A patient's state not being extractable (or not being in the bundled
@@ -330,6 +416,8 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             record_case_and_check_insurer_patterns,
             build_physician_evidence_request_tool,
             draft_appeal_package,
+            review_appeal_package,
+            check_appeal_guardrail,
             prepare_external_review_escalation,
         ],
     )

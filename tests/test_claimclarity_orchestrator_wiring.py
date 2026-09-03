@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import claimclarity.orchestrator as orchestrator_module
+import claimclarity.tools.guardrail as guardrail_module
 from claimclarity.models import (
     AppealPackage,
     Classification,
@@ -19,7 +20,9 @@ from claimclarity.models import (
     DeniedItemSummary,
     DenialFindings,
     EscalationPackage,
+    GuardrailResult,
     LineItemFinding,
+    ReviewResult,
 )
 from claimclarity.orchestrator import ClaimCase, build_orchestrator
 from claimclarity.tools.history import save_history
@@ -379,6 +382,95 @@ def test_record_case_detects_a_real_recurring_pattern(tmp_path: Path, monkeypatc
     assert "recurring denial pattern(s) found" in report
     assert "CO-16" in report
     assert "Coastal Health Plan" not in report
+
+
+def test_review_appeal_package_revision_cap_only_calls_reviewer_once(tmp_path: Path, monkeypatch):
+    """The revision cap (review_revision_count >= 1) must be enforced in
+    plain code - calling review_appeal_package a second time after a
+    revision already happened must NOT invoke the reviewer again, no matter
+    what the orchestrator LLM decides to do."""
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+    monkeypatch.setattr(orchestrator_module, "draft_appeal", lambda claim, findings, **kwargs: _fake_appeal())
+
+    call_count = {"n": 0}
+
+    def fake_review_appeal(appeal, findings):
+        call_count["n"] += 1
+        return ReviewResult(approved=False, issues=["cites the wrong corrected code"], summary="Needs a fix.")
+
+    monkeypatch.setattr(orchestrator_module, "review_appeal", fake_review_appeal)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+    orchestrator.tool.draft_appeal_package()
+
+    first = _tool_text(orchestrator.tool.review_appeal_package())
+    assert "1 issue(s)" in first
+    assert call_count["n"] == 1
+    assert case.review_revision_count == 1
+
+    # Second call after the one allowed revision pass must short-circuit
+    # without invoking the reviewer again.
+    second = _tool_text(orchestrator.tool.review_appeal_package())
+    assert "Maximum review-revision pass" in second
+    assert call_count["n"] == 1  # still only called once
+
+    # A third call is equally a no-op.
+    third = _tool_text(orchestrator.tool.review_appeal_package())
+    assert "Maximum review-revision pass" in third
+    assert call_count["n"] == 1
+
+    assert (tmp_path / "appeal_review.md").exists()
+
+
+def test_review_appeal_package_before_draft_returns_error(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.review_appeal_package()
+    assert "Error" in _tool_text(result)
+
+
+def test_check_appeal_guardrail_writes_report_and_counts_findings(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+    monkeypatch.setattr(orchestrator_module, "draft_appeal", lambda claim, findings, **kwargs: _fake_appeal())
+    monkeypatch.setattr(
+        orchestrator_module, "review_appeal", lambda appeal, findings: ReviewResult(approved=True, summary="Fine.")
+    )
+
+    agent_call_count = {"n": 0}
+
+    def fake_agent_guardrail_check(appeal_text):
+        agent_call_count["n"] += 1
+        return GuardrailResult(passed=True, findings=[])
+
+    monkeypatch.setattr(guardrail_module, "agent_guardrail_check", fake_agent_guardrail_check)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+    orchestrator.tool.draft_appeal_package()
+    orchestrator.tool.review_appeal_package()
+
+    result = _tool_text(orchestrator.tool.check_appeal_guardrail())
+    assert "0 finding(s)" in result
+    assert agent_call_count["n"] == 1
+    assert (tmp_path / "appeal_guardrail.md").exists()
+    assert case.guardrail is not None
+    assert case.guardrail.passed is True
+
+
+def test_check_appeal_guardrail_before_draft_returns_error(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.check_appeal_guardrail()
+    assert "Error" in _tool_text(result)
 
 
 def test_custom_callback_handler_is_used(tmp_path: Path):
