@@ -1,10 +1,14 @@
 from claimclarity.models import (
     AppealPackage,
     Classification,
+    ClaimHistory,
+    ClaimHistoryEntry,
     ClaimLineItem,
     ClaimRecord,
+    DeniedItemSummary,
     DenialFindings,
     EscalationPackage,
+    InsurerPatternInsight,
     LineItemFinding,
     StateDOIInfo,
 )
@@ -59,6 +63,46 @@ def test_escalation_package_defaults_and_null_doi_letter():
     assert escalation.state_doi_complaint_letter is None
     assert escalation.regulatory_basis == []
     assert escalation.escalation_checklist == []
+
+
+def test_claim_history_round_trip():
+    history = ClaimHistory(
+        entries=[
+            ClaimHistoryEntry(
+                insurer_name="Heartland Mutual Health Plan",
+                recorded_at="2026-01-01T00:00:00+00:00",
+                claim_number="CLM-2026-0619884",
+                denied_items=[
+                    DeniedItemSummary(
+                        procedure_code="97110",
+                        procedure_description="Therapeutic exercise",
+                        denial_reason_category="CO-16",
+                        worth_appealing=True,
+                    )
+                ],
+            )
+        ]
+    )
+    restored = ClaimHistory.model_validate_json(history.model_dump_json())
+    assert restored == history
+    assert restored.entries[0].denied_items[0].worth_appealing is True
+
+
+def test_claim_history_defaults_empty():
+    assert ClaimHistory().entries == []
+
+
+def test_insurer_pattern_insight_round_trip():
+    insight = InsurerPatternInsight(
+        insurer_name="Heartland Mutual Health Plan",
+        denial_reason_category="CO-16",
+        procedure_description="Physical therapy",
+        occurrence_count=2,
+        dates=["2026-01-01T00:00:00+00:00", "2026-04-01T00:00:00+00:00"],
+        claim_numbers=["CLM-1", "CLM-2"],
+    )
+    restored = InsurerPatternInsight.model_validate_json(insight.model_dump_json())
+    assert restored == insight
 
 
 def test_state_doi_info_round_trip():

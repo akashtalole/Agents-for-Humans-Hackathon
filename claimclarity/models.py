@@ -157,6 +157,60 @@ class PhysicianEvidenceRequest(BaseModel):
     )
 
 
+class DeniedItemSummary(BaseModel):
+    """One denied line item's compact, non-clinical fingerprint, recorded to
+    the persistent cross-run insurer accountability history
+    (claimclarity/tools/history.py) after every case. Deliberately narrow -
+    no diagnosis code, billed amount, or clinical detail - just enough to
+    match recurrence, the same discipline glacierwatch/models.py's
+    HistoryEntry uses to keep its own persisted history small."""
+
+    procedure_code: str
+    procedure_description: str = ""
+    denial_reason_category: str = Field(
+        description="The recurrence-matching key for this denial: the claim's own CARC code if stated, else its "
+        "literal denial reason text, else the investigation's classification - see "
+        "claimclarity/tools/history.py's docstring for why this is an exact/near-exact string match, not "
+        "semantic matching"
+    )
+    worth_appealing: bool
+
+
+class ClaimHistoryEntry(BaseModel):
+    """One completed case's compact record, appended to the persistent
+    cross-run history file after investigate_denial_tool runs."""
+
+    insurer_name: str
+    recorded_at: str = Field(description="ISO timestamp this case was recorded")
+    claim_number: str = ""
+    denied_items: list[DeniedItemSummary] = Field(default_factory=list)
+
+
+class ClaimHistory(BaseModel):
+    """The full cross-run insurer accountability history file: every
+    ClaimHistoryEntry recorded across all past cases, in the order they were
+    appended (oldest first)."""
+
+    entries: list[ClaimHistoryEntry] = Field(default_factory=list)
+
+
+class InsurerPatternInsight(BaseModel):
+    """A pure-code-detected recurrence: the same insurer denying the same
+    kind of thing on the same stated basis across 2+ separate recorded
+    cases - never an LLM judgment call. See
+    claimclarity/tools/history.py:detect_insurer_patterns for the exact,
+    documented (and deliberately conservative) matching rule."""
+
+    insurer_name: str
+    denial_reason_category: str
+    procedure_description: str = Field(
+        default="", description="A representative denied procedure description for this pattern, for readability"
+    )
+    occurrence_count: int = Field(description="Number of separate recorded cases this denial reason recurred in")
+    dates: list[str] = Field(default_factory=list, description="Timestamps of each recorded case this pattern spans")
+    claim_numbers: list[str] = Field(default_factory=list)
+
+
 class EscalationPackage(BaseModel):
     """What to do after the internal appeal: independent External Review, and,
     only where the findings actually support it, a state DOI complaint about

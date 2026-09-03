@@ -11,10 +11,19 @@ when the findings show an actual process failure.
 """
 from __future__ import annotations
 
+import json
+
 from strands import Agent
 
 from claimclarity.config import create_agent
-from claimclarity.models import AppealPackage, ClaimRecord, DenialFindings, EscalationPackage, StateDOIInfo
+from claimclarity.models import (
+    AppealPackage,
+    ClaimRecord,
+    DenialFindings,
+    EscalationPackage,
+    InsurerPatternInsight,
+    StateDOIInfo,
+)
 
 SYSTEM_PROMPT = """\
 You are a patient-advocacy escalation advisor. You are NOT a lawyer and this \
@@ -65,6 +74,15 @@ external review request via the method described", "keep a copy of \
 everything you send and note the date you sent it").
 - rationale: plain English, for someone stressed and short on time - explain \
 why you are or aren't recommending each path, in a sentence or two each.
+- If an INSURER ACCOUNTABILITY PATTERN is given below, it means this same \
+insurer has denied something on this same stated basis in at least one \
+other case already recorded locally. This is exactly the kind of fact that \
+strengthens a state DOI complaint - a pattern of improper denials, not a \
+one-off - so weigh it toward drafting one and cite it plainly in \
+regulatory_basis and/or rationale when it's given. Never invent a pattern \
+that wasn't given to you, and it never overrides the requirement above that \
+a state_doi_complaint_letter needs an actual process failure in the \
+findings, not just a pattern by itself.
 """
 
 
@@ -73,7 +91,11 @@ def build_escalation_advisor() -> Agent:
 
 
 def prepare_escalation(
-    claim: ClaimRecord, findings: DenialFindings, appeal: AppealPackage, doi_info: StateDOIInfo
+    claim: ClaimRecord,
+    findings: DenialFindings,
+    appeal: AppealPackage,
+    doi_info: StateDOIInfo,
+    insurer_pattern_insights: list[InsurerPatternInsight] | None = None,
 ) -> EscalationPackage:
     agent = build_escalation_advisor()
     prompt = (
@@ -87,7 +109,13 @@ def prepare_escalation(
         "the ONLY source of deadline windows and regulatory framework detail; do not supplement it from "
         "your own knowledge:\n"
         f"{doi_info.model_dump_json(indent=2)}\n\n"
-        "Prepare the external review / regulatory escalation package now."
     )
+    if insurer_pattern_insights:
+        prompt += (
+            "INSURER ACCOUNTABILITY PATTERN (structured JSON, pure-code-detected recurrence across your "
+            "recorded case history with this insurer - not a judgment call):\n"
+            f"{json.dumps([insight.model_dump() for insight in insurer_pattern_insights], indent=2)}\n\n"
+        )
+    prompt += "Prepare the external review / regulatory escalation package now."
     result = agent(prompt, structured_output_model=EscalationPackage)
     return result.structured_output
