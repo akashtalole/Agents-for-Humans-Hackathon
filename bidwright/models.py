@@ -228,6 +228,36 @@ class RecurringGapInsight(BaseModel):
     )
 
 
+class ReviewResult(BaseModel):
+    """A skeptical second-pass review of a drafted proposal against the
+    compliance report it was drafted from - catches the proposal claiming
+    something is compliant that the compliance report says is a gap,
+    inventing a certification/capability not in the company profile, or
+    quietly omitting an open blocking gap. Never a prose-style critique."""
+
+    approved: bool
+    issues: list[str] = Field(default_factory=list)
+    summary: str
+
+
+class GuardrailFinding(BaseModel):
+    """One concrete, checkable problem found in the drafted proposal text by
+    `bidwright/tools/guardrail.py` - either a deterministic pattern match or
+    a subtler violation an agent-based check caught."""
+
+    rule: str
+    excerpt: str
+    explanation: str
+
+
+class GuardrailResult(BaseModel):
+    """The combined result of running every guardrail check (deterministic
+    pattern scan + agent-based check) against a drafted proposal's text."""
+
+    passed: bool
+    findings: list[GuardrailFinding] = Field(default_factory=list)
+
+
 class ProposalDraft(BaseModel):
     cover_letter: str
     executive_summary: str

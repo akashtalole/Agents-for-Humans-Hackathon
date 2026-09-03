@@ -10,8 +10,10 @@ from __future__ import annotations
 from bidwright.models import (
     AmendmentImpact,
     ComplianceReport,
+    GuardrailResult,
     ProposalDraft,
     RecurringGapInsight,
+    ReviewResult,
     RFPRequirements,
     TeamingPlan,
 )
@@ -112,6 +114,50 @@ def render_proposal_md(proposal: ProposalDraft) -> str:
 
 ## Open Questions For You
 {open_questions}
+"""
+
+
+def render_review_md(review: ReviewResult) -> str:
+    """Second-pass reviewer verdict on the drafted proposal - see
+    bidwright/agents/proposal_reviewer.py. Plain rendering of a validated
+    ReviewResult, same discipline as every other render_* function here."""
+    headline = "✅ REVIEW PASSED — no concrete issues found" if review.approved else "⚠️ REVIEW FOUND ISSUES"
+    issues_md = (
+        "\n".join(f"- {issue}" for issue in review.issues) if review.issues else "No issues found."
+    )
+    return f"""# Proposal Review
+
+**Verdict:** {headline}
+
+## Summary
+{review.summary}
+
+## Issues
+{issues_md}
+"""
+
+
+def render_guardrail_md(result: GuardrailResult) -> str:
+    """Deterministic + agent-based guardrail scan result - see
+    bidwright/tools/guardrail.py. Plain rendering of a validated
+    GuardrailResult."""
+    headline = "✅ GUARDRAIL PASSED — no overclaim/misleading-language findings" if result.passed else "⚠️ GUARDRAIL FLAGGED LANGUAGE"
+
+    def finding_block(finding) -> str:
+        return (
+            f"### [{finding.rule}]\n"
+            f"- **Excerpt:** \"{finding.excerpt}\"\n"
+            f"- **Why:** {finding.explanation}\n"
+        )
+
+    findings_md = "\n".join(finding_block(f) for f in result.findings) or "No issues found."
+
+    return f"""# Proposal Guardrail Check
+
+**Verdict:** {headline}
+
+## Findings
+{findings_md}
 """
 
 
