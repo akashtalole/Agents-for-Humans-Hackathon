@@ -201,6 +201,41 @@ class InspectionStop(BaseModel):
     longitude: float
 
 
+class ReviewResult(BaseModel):
+    """A skeptical second pass over one drafted CommunityAlertBulletin,
+    comparing it against the SiteRiskBrief it was drafted from (see
+    glacierwatch/agents/alert_reviewer.py). Flags only concrete, checkable
+    problems - a mismatched priority level, invented specifics not present
+    in the brief/settlement data it was given, or (most importantly)
+    language that sounds like a prediction of when/whether the hazard will
+    occur. Never a rubber stamp, and never a prose-style nitpick."""
+
+    approved: bool
+    issues: list[str] = Field(default_factory=list)
+    summary: str
+
+
+class GuardrailFinding(BaseModel):
+    """One concrete match against GlacierWatch's single non-negotiable rule:
+    it must never predict if, when, or where an avalanche or glacial lake
+    outburst flood will occur, in any generated text - see
+    glacierwatch/tools/guardrail.py."""
+
+    rule: str
+    excerpt: str
+    explanation: str
+
+
+class GuardrailResult(BaseModel):
+    """The result of glacierwatch/tools/guardrail.py:run_guardrail_check on
+    one piece of generated text - the union of a deterministic keyword scan
+    and an agent-based check for subtler phrasing. `passed` is True only
+    when neither check found anything."""
+
+    passed: bool
+    findings: list[GuardrailFinding] = Field(default_factory=list)
+
+
 class InspectionSchedule(BaseModel):
     """A field team's ordered weekly inspection route: which sites (capped by
     field-team capacity), in what visiting order. The stop order is a greedy
