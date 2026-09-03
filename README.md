@@ -8,7 +8,7 @@ someone's time — or, for GlacierWatch, a real ongoing disaster.
 |---|---|---|
 | **[BidWright](BIDWRIGHT.md)** | Professional Agents | Reads an RFP, checks a small business against every requirement, drafts the proposal, and only asks you to decide the things only you can decide. |
 | **[ClaimClarity](CLAIMCLARITY.md)** | Everyday Agents | Reads a health insurance denial, checks it against real ICD-10 coding rules and your plan's own terms, and drafts the appeal — or tells you honestly when it's not worth fighting. Also ships a FastAPI + React web UI (`server_claimclarity.py`), not just the Streamlit demo. |
-| **[GlacierWatch](GLACIERWATCH.md)** | Good Neighbor Agents | Combines published, cited Himalayan glacial-hazard assessments with live weather and seismic data to prioritize monitoring attention this week — decision support for disaster management authorities, never a prediction of an avalanche or flood. |
+| **[GlacierWatch](GLACIERWATCH.md)** | Good Neighbor Agents | Combines published, cited Himalayan glacial-hazard assessments with live weather and seismic data to prioritize monitoring attention this week — decision support for disaster management authorities, never a prediction of an avalanche or flood. Also has a FastAPI + React web UI (see [GLACIERWATCH.md's Web UI section](GLACIERWATCH.md#web-ui)), deployable to AWS via ECS Express Mode. |
 
 All three share the same architectural discipline: a Strands **"agents as
 tools"** orchestrator, validated Pydantic structured outputs between every
@@ -62,4 +62,6 @@ Docker required. This creates real, billable AWS resources — read
 warning and prerequisites before running `setup.sh`, and remember to run
 `teardown.sh` when you're done. This is optional and stretch-goal territory —
 all three projects run entirely locally without it. (GlacierWatch doesn't
-have an AgentCore/CloudShell deployment path yet.)
+have an AgentCore/CloudShell deployment path — its web UI instead deploys to
+Amazon ECS Express Mode, GlacierWatch's first AWS deployment path of any
+kind; see [`deploy/ecs-express/glacierwatch/README.md`](deploy/ecs-express/glacierwatch/README.md).)

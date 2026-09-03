@@ -1,0 +1,32 @@
+# GlacierWatch web UI: FastAPI backend (glacierwatch/api.py) + React frontend
+# (webapp/glacierwatch), served from a single container so no CORS setup is
+# needed in production. Multi-stage: build the frontend with Node, then run
+# it from a lean Python image alongside the API.
+#
+# Build:  docker build -f Dockerfile.glacierwatch.webapp -t glacierwatch-webui .
+# Run:    docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... glacierwatch-webui
+
+# --- stage 1: build the React frontend --------------------------------
+FROM node:20-slim AS frontend-build
+WORKDIR /app/webapp/glacierwatch
+COPY webapp/glacierwatch/package.json webapp/glacierwatch/package-lock.json ./
+RUN npm ci
+COPY webapp/glacierwatch/ ./
+RUN npm run build
+
+# --- stage 2: the API server, with the built frontend bundled in ------
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+# Only what's needed to install the package and run the API - keeps the
+# image lean and the build cache stable across unrelated source edits.
+COPY pyproject.toml README.md ./
+COPY glacierwatch/ ./glacierwatch/
+COPY server_glacierwatch.py ./
+
+RUN pip install --no-cache-dir -e ".[api]"
+
+COPY --from=frontend-build /app/webapp/glacierwatch/dist ./webapp/glacierwatch/dist
+
+EXPOSE 8000
+CMD ["python", "server_glacierwatch.py"]

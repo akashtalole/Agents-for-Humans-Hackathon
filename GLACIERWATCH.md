@@ -167,6 +167,97 @@ app_glacierwatch.py              Demo UI
 tests/                           Unit tests (mocked HTTP, no network) + an opt-in live-model integration test
 ```
 
+## Web UI
+
+Beyond the Streamlit demo, GlacierWatch also ships a modern web UI: a
+FastAPI JSON API (`glacierwatch/api.py`) plus a React + TypeScript +
+Tailwind frontend (`webapp/glacierwatch/`), served from a single container
+in production. This is **GlacierWatch's first AWS deployment path of any
+kind** — unlike BidWright and ClaimClarity, which already had an Amazon
+Bedrock AgentCore Runtime path (`deploy/cloudshell/`), GlacierWatch
+previously only ran locally.
+
+It preserves this project's non-negotiable framing exactly: the same
+`DISCLAIMER` constant from `glacierwatch/rendering.py` is fetched from
+`GET /api/status` and shown as an always-visible banner, before any run
+happens, not just after — and the same trust hierarchy as the Streamlit
+demo, where the deterministic `watchlist_report.md` is the headline result
+and the orchestrator's own free-text reply is demoted to a clearly labeled
+"Agent's Own Summary (unverified)" tab. **This is still a decision-support
+triage tool, never a prediction system** — nothing about wrapping it in a
+web API or a container changes that; if anything, a genuinely modern UI
+makes it easier for the non-prediction framing to actually be read, since
+the disclaimer banner is impossible to scroll past unseen.
+
+### Architecture
+
+```
+Browser (React SPA)  <--/api/*-->  FastAPI (glacierwatch/api.py)  -->  run_watchlist()
+                                                                          (glacierwatch/pipeline.py,
+                                                                           unchanged)
+```
+
+- `POST /api/runs` kicks off `run_watchlist()` on a background
+  `ThreadPoolExecutor` and returns a `job_id` immediately.
+- `GET /api/runs/{id}/events` streams the live tool-call activity log as
+  Server-Sent Events.
+- `GET /api/runs/{id}` returns status, the deterministic status badge
+  (mirrors `app_glacierwatch.py`'s error/warning/success logic exactly),
+  the site list, and the orchestrator's summary text.
+- `GET /api/runs/{id}/files/{name}` serves the raw generated Markdown
+  (`watchlist_report.md`, `site_profile_*.md`, `site_conditions_*.md`),
+  which the frontend renders with `react-markdown` — never re-rendered or
+  paraphrased by the API layer.
+
+**A deliberate architectural improvement over the Streamlit demo's
+threading workaround.** `app_glacierwatch.py`'s activity-log callback has
+to explicitly re-attach Streamlit's `ScriptRunContext` to Strands' executor
+thread (`add_script_run_ctx`) to avoid a `NoSessionContext` crash — see
+`docs/glacierwatch/screenshots/NOTES.md` for the real, reproduced bug this
+caused before it was fixed. The FastAPI backend has no equivalent problem
+by construction: its `callback_handler` only ever calls `queue.Queue.put`,
+a plain thread-safe primitive with no session/request affinity for the
+callback's thread to be missing. The SSE endpoint then just drains that
+queue asynchronously (`run_in_executor(None, events.get)`) — there is no
+framework object anywhere in the callback path that could go missing on a
+different thread, so this class of bug isn't fixable-after-the-fact here,
+it's structurally absent.
+
+### Running it locally
+
+```bash
+pip install -e ".[api,ui,dev]"
+cd webapp/glacierwatch && npm install && npm run build && cd ../..
+python server_glacierwatch.py
+```
+
+Or for frontend development with hot reload (`vite.config.ts` proxies
+`/api/*` to `http://localhost:8000`):
+
+```bash
+# terminal 1
+python server_glacierwatch.py
+# terminal 2
+cd webapp/glacierwatch && npm run dev
+```
+
+Then open the printed URL, click **Run GlacierWatch**, and watch the live
+activity log — the same tool-call sequence the CLI and Streamlit demo both
+show, streamed over SSE instead of printed to a terminal or a
+Streamlit placeholder.
+
+### Deploying to AWS
+
+See [`deploy/ecs-express/glacierwatch/README.md`](deploy/ecs-express/glacierwatch/README.md)
+for deploying the web UI to Amazon ECS Express Mode — a single container
+(`Dockerfile.glacierwatch.webapp`) with the API and the built React app
+served together, no CORS configuration needed. As with
+`deploy/cloudshell/`'s AgentCore path for the other two projects, this has
+been verified as far as offline testing can reach but **not exercised
+against a live AWS account** — read the README's warnings before running
+it, and note its "Honest limitations" section on why the ECS Express
+service is pinned to exactly one running task.
+
 ## Testing
 
 ```bash
