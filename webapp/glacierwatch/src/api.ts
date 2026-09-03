@@ -1,4 +1,4 @@
-import type { RunStatusResponse, StatusResponse } from './types'
+import type { ChatMessage, RunStatusResponse, StatusResponse } from './types'
 
 async function json<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
@@ -17,6 +17,34 @@ export function createRun(): Promise<{ job_id: string }> {
 
 export function fetchRun(jobId: string): Promise<RunStatusResponse> {
   return fetch(`/api/runs/${jobId}`).then(json<RunStatusResponse>)
+}
+
+export function approveRun(jobId: string, editedAlerts: Record<string, string> | null): Promise<RunStatusResponse> {
+  return fetch(`/api/runs/${jobId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ edited_alerts: editedAlerts }),
+  }).then(json<RunStatusResponse>)
+}
+
+export function rejectRun(jobId: string, reason: string | null): Promise<RunStatusResponse> {
+  return fetch(`/api/runs/${jobId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  }).then(json<RunStatusResponse>)
+}
+
+export function sendChatMessage(jobId: string, message: string): Promise<{ reply: string }> {
+  return fetch(`/api/runs/${jobId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }).then(json<{ reply: string }>)
+}
+
+export function fetchChatHistory(jobId: string): Promise<{ messages: ChatMessage[] }> {
+  return fetch(`/api/runs/${jobId}/chat`).then(json<{ messages: ChatMessage[] }>)
 }
 
 export async function fetchFile(jobId: string, filename: string): Promise<string> {
