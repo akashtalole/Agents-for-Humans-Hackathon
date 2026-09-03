@@ -226,6 +226,9 @@ __marimo__/
 # ClaimClarity persistent insurer-accountability history file (default path, repo root)
 /claimclarity_history.json
 
+# GlacierWatch web API job output dirs (glacierwatch/api.py, one per run)
+/.glacierwatch_runs/
+
 # Web UI frontend build artifacts (built fresh by npm/Docker, not committed)
 webapp/*/node_modules/
 webapp/*/dist/
