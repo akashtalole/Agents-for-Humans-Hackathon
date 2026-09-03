@@ -65,7 +65,15 @@ and a medical record excerpt), ClaimClarity:
    anything that isn't worth appealing, instead of drafting a doomed letter
    just to be agreeable. When a real insurer pattern was found, the appeal
    drafter may cite it as supporting context.
-8. **Prepares the next step almost nobody knows they have**: if the internal
+8. **Fact-checks its own draft, then runs it past a guardrail** — a second,
+   independent agent reviews the drafted appeal against the denial findings
+   it was supposed to come from (wrong code, unsupported claim, overstated
+   certainty about the outcome — never prose style), and a combined
+   deterministic + agent-based guardrail scans the current draft for
+   language that promises a guaranteed outcome, states an unsupported
+   medical fact, or gives legal advice. See **Independent Review & Guardrail
+   Check** below.
+9. **Prepares the next step almost nobody knows they have**: if the internal
    appeal doesn't fully resolve the denial, most patients have a legal right
    to an independent **External Review** by a third party outside the
    insurer — and, separately, to file a complaint with their state
@@ -76,10 +84,17 @@ and a medical record excerpt), ClaimClarity:
    drafts a DOI complaint letter too. When a real insurer pattern was found,
    the escalation advisor may cite it too. See **External Review & Regulatory
    Escalation** below.
-9. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
-   what's worth appealing, what isn't and why, the deadline, and pointers to
-   the physician evidence request and the escalation package. Everything
-   else runs unattended.
+10. **Surfaces exactly one decision-ready summary** (`decisions_needed.md`):
+    what's worth appealing, what isn't and why, the deadline, and pointers to
+    the physician evidence request and the escalation package. Everything
+    else runs unattended.
+11. **In the web UI, waits for a human to approve or reject the draft before
+    it counts as done** — the CLI and Streamlit demo still hand you the files
+    directly, but the web UI's job never reaches "completed" on its own; it
+    stops at "awaiting your approval," showing the review verdict, any
+    guardrail findings, and an editable copy of the letter, and lets you ask
+    grounded follow-up questions about the case before you decide. See
+    **Web UI** below.
 
 Try it against the included example: a physical therapy claim billed with a
 diagnosis code that was deprecated for billing purposes in FY2022 (a real,
@@ -106,6 +121,8 @@ flowchart TD
     O -->|tool call| H["record_case_and_check_insurer_patterns\n→ pure code, no LLM"]
     O -->|tool call| V["build_physician_evidence_request\n→ Evidence Request Builder Agent"]
     O -->|tool call| P["draft_appeal_package\n→ Appeal Drafter Agent"]
+    O -->|tool call| RV["review_appeal_package\n→ Appeal Reviewer Agent\n(bounded: ≤1 revision pass)"]
+    O -->|tool call| G["check_appeal_guardrail\n→ deterministic scan +\nGuardrail Agent, always once"]
     O -->|tool call| E["prepare_external_review_escalation\n→ Escalation Advisor Agent"]
 
     I -->|calls| ICD["lookup_icd10_code /\nsearch_icd10_codes"]
@@ -119,12 +136,17 @@ flowchart TD
     H -->|InsurerPatternInsight list| J
     V -->|PhysicianEvidenceRequest| J
     P -->|AppealPackage| J
+    RV -->|ReviewResult| J
+    G -->|GuardrailResult| J
     E -->|EscalationPackage| J
     J --> A
     J --> I
     J --> H
     J --> V
     J --> P
+    RV -.->|issues found → revise| P
+    J --> RV
+    J --> G
     J --> E
 
     J --> F1[claim_summary.md]
@@ -132,6 +154,8 @@ flowchart TD
     J --> F3[decisions_needed.md]
     J --> F9[insurer_pattern_report.md]
     J --> F4[appeal_package.md]
+    J --> F10[appeal_review.md]
+    J --> F11[appeal_guardrail.md]
     J --> F5[appeal_deadline.ics]
     J --> F8[physician_evidence_request.md]
     J --> F6[escalation_package.md]
@@ -139,6 +163,15 @@ flowchart TD
 
     O -->|plain-English summary| U
     F3 -->|only worth-appealing vs. not, and why| U
+
+    subgraph WEBUI["Web UI only (claimclarity/api.py)"]
+        F4 -.->|draft_text| AP["ApprovalPanel\nreview + guardrail + edit"]
+        F10 -.->|review| AP
+        F11 -.->|guardrail| AP
+        AP -->|POST approve/reject| ST[["job status:\nawaiting_approval →\ncompleted / rejected"]]
+        CH["ChatPanel\ngrounded on this job's .md files"] -.->|POST/GET .../chat| ALL[(this job's\ngenerated .md files)]
+    end
+    U -.->|reviews, edits, approves/rejects| WEBUI
 ```
 
 Design choices worth calling out:
@@ -287,6 +320,69 @@ and the escalation advisor: it never invents a diagnosis, test result, or
 treatment history that isn't already in the claim record or findings it was
 given.
 
+## Independent Review & Guardrail Check
+
+**The problem this closes:** a single drafting pass has nothing stopping it
+from citing the wrong code, claiming a fact the investigation never
+established, or overstating how certain the outcome is — and an appeal
+letter is exactly the kind of document where a confident-sounding but
+unsupported claim can do real damage to the patient's case, not just read
+oddly. One LLM call checking its own work is not independent; ClaimClarity
+gives the check a second, separate agent with a narrower brief.
+
+ClaimClarity runs this as pipeline steps 8 and 9, immediately after the
+appeal is drafted:
+
+1. The **Appeal Reviewer** agent (`claimclarity/agents/appeal_reviewer.py`)
+   fact-checks the drafted `AppealPackage` against the `DenialFindings` it
+   was supposed to come from — never against its own sense of what a good
+   letter reads like. It flags only concrete, checkable problems: a cited
+   diagnosis/procedure code that doesn't match what the findings determined
+   for that line item, a claim about the medical record or plan terms not
+   present anywhere in the findings, a "why this isn't worth appealing"
+   explanation that contradicts the finding's own `worth_appealing` flag or
+   reasoning, or language that overstates certainty about the outcome. It is
+   explicitly instructed **not** to flag word choice, tone, formatting, or
+   "persuasiveness" — a firmly argued letter that makes no false or
+   unsupported claim has no issues, even if a reviewer would have phrased it
+   differently.
+2. If it finds real issues, the orchestrator revises by calling the appeal
+   drafter again with that feedback, then reviews once more to confirm the
+   revision actually addressed them. This loop is **capped at exactly one
+   revision pass by plain code**, not by the model's own judgment — a second
+   call to the review tool after a revision already happened returns
+   immediately without reviewing again (see
+   `ClaimCase.review_revision_count` in `claimclarity/orchestrator.py`), so
+   it structurally cannot run away. Result written to `appeal_review.md`.
+3. Separately, and always exactly once regardless of what the review found,
+   `check_appeal_guardrail` (`claimclarity/tools/guardrail.py`) checks the
+   **current** `appeal_package.md` for the kind of subtler compliance
+   problem that "fact-checked against the findings" doesn't cover — two
+   independent layers, unioned:
+   - `scan_guaranteed_outcome_claims` is a deterministic regex over a fixed
+     phrase list (`guarantee`, `will be approved`, `100% covered`, and
+     similar) — no model call, offline-testable, and it catches exactly the
+     narrow thing it's built to catch every time.
+   - `agent_guardrail_check` is a small, separate agent with a policy of
+     exactly three rules: no guaranteed-outcome claims, no unsupported
+     medical/diagnostic claims, no legal advice beyond describing the
+     appeal/escalation process itself — for the phrasing a fixed regex can't
+     anticipate.
+   Result written to `appeal_guardrail.md`. This is a check that runs, not a
+   gate that blocks — findings are for **a human to review before the
+   appeal is sent**, which the web UI's approval panel makes literal (see
+   **Web UI** below); the CLI/Streamlit demo surface the same file for the
+   same reason.
+
+**Honest limitation:** the reviewer and guardrail agents are each a single
+model call with a narrow brief, not a formal verifier — they catch what
+they're instructed to catch and are held to the same "flag only concrete,
+checkable problems" discipline as every other agent in this pipeline, but
+neither is a guarantee that every possible factual or compliance problem in
+a drafted letter is caught. A human review before sending remains the actual
+safety net, which is exactly why the web UI makes that review a required
+step rather than an optional file to skim.
+
 ## External Review & Regulatory Escalation
 
 **The problem this closes:** most denied claims that get an internal appeal
@@ -392,11 +488,13 @@ claimclarity/
     icd10.py                      @tool lookup_icd10_code, search_icd10_codes
     state_doi.py                  lookup_state_doi_process (+ @tool text-report wrapper)
     history.py                    load/append/save cross-run ClaimHistory + detect_insurer_patterns (pure code)
+    guardrail.py                   scan_guaranteed_outcome_claims (pure code) + agent_guardrail_check + run_guardrail_check
   agents/
     claim_analyzer.py             Sub-agent: documents -> ClaimRecord
     denial_investigator.py        Sub-agent (tool-using): ClaimRecord -> DenialFindings
     evidence_request_builder.py   Sub-agent: -> PhysicianEvidenceRequest (physician evidence request)
     appeal_drafter.py             Sub-agent: -> AppealPackage
+    appeal_reviewer.py             Sub-agent: fact-checks AppealPackage against DenialFindings -> ReviewResult
     escalation_advisor.py         Sub-agent: -> EscalationPackage (external review + DOI complaint)
   orchestrator.py                 Orchestrator Agent (agents-as-tools) + shared ClaimCase state
   pipeline.py                     run_claim_case() convenience wrapper used by CLI/UI/API/AgentCore
@@ -467,15 +565,73 @@ caption warning it can occasionally misstate specifics even when every
 generated file is correct. Nothing about moving to a web UI loosened that
 discipline.
 
+**Human-in-the-loop approval gate — web UI only, no further orchestrator
+changes.** The CLI and Streamlit demo are unchanged: they still hand you the
+generated files directly the moment the pipeline finishes, same as always.
+The web UI is stricter, because it's the surface most likely to be used by
+someone who isn't watching every file get written: a successful run there
+**never** reaches job status `"completed"` on its own. It lands on
+`"awaiting_approval"` instead — the orchestrator always drafts
+`appeal_package.md`, so there's always something for a human to actually
+approve or reject — and stays there until you do one of the two:
+
+- **Approve** (`POST /api/runs/{job_id}/approve`, body
+  `{"edited_text": string | null}`): moves the job to `"completed"`. If you
+  edited the letter in the approval panel's textarea, that edited text
+  overwrites `appeal_package.md` on disk first — what gets marked
+  "approved" is genuinely what a human signed off on, edits included, not
+  the model's first draft.
+- **Reject** (`POST /api/runs/{job_id}/reject`, body
+  `{"reason": string | null}`): moves the job to `"rejected"` with an
+  optional stored reason. Nothing is deleted — the draft as it stood at
+  rejection time stays readable, read-only.
+
+The frontend's `ApprovalPanel.tsx` renders the independent review verdict
+(`appeal_review.md` → `ReviewResult`) and the guardrail findings
+(`appeal_guardrail.md` → `GuardrailResult`) prominently above the editable
+draft — green "no issues" when clean, amber/red with the exact excerpt and
+explanation per finding when not — and an acknowledgment checkbox gates the
+Approve button, but **only when there's a real guardrail finding to
+acknowledge**: a clean run's Approve button is never gated behind a
+checkbox that has nothing to actually acknowledge. This is a UI gate, not a
+new safety mechanism the backend enforces — `POST .../approve` itself
+doesn't require or check any acknowledgment field; the guarantee is "a
+human looked at this page before clicking Approve," not "the backend can
+prove what they read."
+
+**Conversational follow-up — grounded, not general-purpose.**
+`POST /api/runs/{job_id}/chat` (body `{"message": string}`) and
+`GET /api/runs/{job_id}/chat` (chat history) let you ask questions once a
+job is `"awaiting_approval"` or `"completed"` (400 while `"running"` or
+`"failed"` — there's nothing to ground answers in yet). Each question goes
+to a **fresh, tool-less** Strands `Agent` whose entire knowledge is the
+concatenation of that job's own generated `.md` files, explicitly
+instructed to say so honestly rather than guess when the answer isn't in
+them — never the open internet, never the model's own training-data
+opinions about insurance law. The context is capped at roughly 40,000
+characters; if a job's files would exceed that, the two QA-artifact files
+(`appeal_review.md`, `appeal_guardrail.md`) are dropped first, before any of
+the primary case files (`appeal_package.md`, `decisions_needed.md`,
+`denial_findings.md`, and the rest) — see
+`claimclarity/api.py`'s `_build_chat_context`. The blocking LLM call runs on
+the same background executor as the pipeline job itself, off the event
+loop, for the same reason the SSE queue read below does.
+
 **Endpoints** (`claimclarity/api.py`): `GET /api/status` (model
 provider/readiness), `POST /api/runs` (multipart upload or the bundled
 example, returns a `uuid4` job id immediately, runs the pipeline on a
-background thread), `GET /api/runs/{job_id}` (status, the same
-success/warning/info status-badge logic as the Streamlit demo, the file
-manifest, and `summary_text`), `GET /api/runs/{job_id}/events`
-(Server-Sent Events, one tool-call name per line, deduped, for the live
-activity log), and `GET /api/runs/{job_id}/files/{filename}` (raw file
-content, path-traversal-checked against the job's own output directory).
+background thread), `GET /api/runs/{job_id}` (status — now one of
+`running` / `awaiting_approval` / `completed` / `rejected` / `failed` — the
+same success/warning/info/error status-badge logic as the Streamlit demo
+plus the two new fixed badges for the approval-gate states, the file
+manifest, `summary_text`, `draft_text`, `review`, `guardrail`, and
+`reject_reason`), `POST /api/runs/{job_id}/approve` and
+`POST /api/runs/{job_id}/reject` (the approval gate above),
+`POST`/`GET /api/runs/{job_id}/chat` (grounded follow-up above),
+`GET /api/runs/{job_id}/events` (Server-Sent Events, one tool-call name per
+line, deduped, for the live activity log), and
+`GET /api/runs/{job_id}/files/{filename}` (raw file content,
+path-traversal-checked against the job's own output directory).
 
 **Architectural improvement over the Streamlit demo's callback-threading
 workaround.** Strands always runs the agent — and therefore every
@@ -523,11 +679,17 @@ endpoint) — a different, separate deployment path from
 [`deploy/cloudshell/`](deploy/cloudshell/)'s Bedrock AgentCore path above,
 which deploys the *agent* rather than this *web UI*.
 
-Offline tests: `tests/test_claimclarity_api.py` covers the job lifecycle,
-the SSE stream's dedup behavior, upload vs. example flows, the 400
-no-documents case, and path-traversal rejection, with `run_claim_case`
-mocked the same way the orchestrator wiring tests mock sub-agent functions
-— no API key or network required.
+Offline tests: `tests/test_claimclarity_api.py` covers the job lifecycle
+including the full `awaiting_approval` → `approve`/`reject` →
+`completed`/`rejected` transitions (with and without an edited draft, the
+stored reject reason, review/guardrail surfaced in the payload), approve/
+reject correctly erroring on a job that isn't `awaiting_approval`, the
+grounded chat endpoints (400 while `running`/`failed`, a mocked chat call
+returning a reply and appending to history, the context char-cap drop
+order), the SSE stream's dedup behavior, upload vs. example flows, the 400
+no-documents case, and path-traversal rejection, with `run_claim_case` (and,
+for chat, `create_agent`) mocked the same way the orchestrator wiring tests
+mock sub-agent functions — no API key or network required.
 
 ## Deploying to Amazon Bedrock AgentCore (optional)
 
@@ -576,13 +738,28 @@ stretch goal, not a requirement — everything above runs standalone.
   you deploy it. Do not put real patient denial notices or medical record
   excerpts through a publicly reachable deployment of this without adding
   an auth layer first.
+- **The chat feature has no memory across turns.** Each question is answered
+  by a fresh agent call grounded only in the job's generated files, not in
+  the prior turns of that same conversation — a genuinely multi-turn
+  follow-up ("what about the second one?") won't have the earlier exchange
+  to draw on, only the case files. `chat_history` is stored and returned so
+  the UI can display a transcript, but it is not fed back into the model.
+- **The approval gate is a UI convention, not a cryptographic guarantee.**
+  `POST .../approve` moves a job to `completed` because the frontend called
+  it; the endpoint itself doesn't verify a human actually read the review or
+  guardrail findings, only that the acknowledgment checkbox was checked
+  client-side when one was shown. Anyone with the job's URL who calls the
+  API directly can approve or reject without seeing the panel at all — this
+  sits inside the same "no authentication" trust boundary documented above,
+  not on top of it.
 - **What's actually been verified, precisely:** the tool functions (including
   ICD-10 and state DOI lookups against the bundled data, and the insurer
   accountability history's load/append/save/recurrence-detection logic —
   including that unrelated insurers never bleed into each other's patterns),
   Pydantic schemas, Markdown rendering, and the orchestrator's tool-call
-  plumbing — including the physician evidence request builder's wiring — are
-  covered by 80+ offline tests and have run clean. The evidence request
+  plumbing — including the physician evidence request builder's, appeal
+  reviewer's, and guardrail's wiring — are covered by 120+ offline tests and
+  have run clean. The evidence request
   builder's own
   judgment (which findings actually qualify as medical-necessity-related,
   the quality of a real model's drafted letter) has *not* been checked
@@ -610,7 +787,17 @@ stretch goal, not a requirement — everything above runs standalone.
   calls, and reading the completed Appeal Package tab, which correctly
   reproduced the same billing-error-vs-plan-exclusion distinction above,
   with no `NoSessionContext`-class crash of any kind (see **Web UI**'s
-  architecture note for why that class of bug can't happen here). Docker
+  architecture note for why that class of bug can't happen here). The
+  human-in-the-loop approval gate and grounded chat have since been driven
+  live the same way: a real run against the bundled example landed cleanly
+  on `awaiting_approval` with the independent review showing "no issues" and
+  the guardrail showing "passed" (`docs/claimclarity/screenshots/webui_04_approval.png`),
+  clicking Approve transitioned it to `completed` with the normal results
+  tabs (`webui_05_completed_after_approval.png`), asking the chat panel
+  "What's the appeal deadline?" returned the correct date pulled from that
+  run's own `decisions_needed.md` (`webui_06_chat.png`), and a second run
+  rejected with a reason correctly landed on the read-only rejected view
+  showing that reason (`webui_07_rejected.png`). Docker
   build and a live ECS Express Mode deploy were not exercised (no Docker
   daemon or live AWS account in the environment this was built in) — see
   `deploy/ecs-express/claimclarity/README.md`.
