@@ -1,32 +1,49 @@
-# React + TypeScript + Vite
+# GlacierWatch web UI (frontend)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Vite + React + TypeScript + Tailwind CSS frontend for GlacierWatch's web UI.
+Talks to the FastAPI backend in `glacierwatch/api.py` — see `../../GLACIERWATCH.md`'s
+"Web UI" section for the full architecture and how to run the whole thing
+(backend + frontend) locally or deploy it to AWS.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+`vite.config.ts` proxies `/api/*` to `http://localhost:8000`, so also run
+the backend in another terminal:
+
+```bash
+# from the repo root
+pip install -e ".[api]"
+python server_glacierwatch.py
+```
+
+## Build
+
+```bash
+npm run build
+```
+
+Outputs to `dist/`, which `glacierwatch/api.py` serves at `/` when present
+(mounted after all `/api/*` routes, so the API always takes priority).
+`dist/` and `node_modules/` are gitignored — built fresh by `npm run build`
+or by `Dockerfile.glacierwatch.webapp`'s frontend build stage.
+
+## Structure
+
+```
+src/
+  api.ts                        Typed fetch wrappers + the SSE activity-log helper
+  types.ts                      TypeScript types matching glacierwatch/api.py's response shapes
+  hooks/useTheme.ts             Light/dark mode, persisted in localStorage
+  components/
+    Header.tsx                   Title, tagline, model-status pill, theme toggle
+    DisclaimerBanner.tsx         Always-visible non-prediction disclaimer (from GET /api/status)
+    RunPanel.tsx                 "Run GlacierWatch" button + live activity log
+    StatusBadgeBanner.tsx        error/warning/success banner after a run completes
+    ResultsTabs.tsx               The four result tabs, matching app_glacierwatch.py exactly
+  App.tsx                        Ties it all together
+```
