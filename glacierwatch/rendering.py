@@ -10,8 +10,10 @@ from __future__ import annotations
 from glacierwatch.models import (
     CommunityAlertBulletin,
     CurrentConditions,
+    GuardrailResult,
     InspectionSchedule,
     PriorityLevel,
+    ReviewResult,
     SiteTrend,
     TrendClassification,
     WatchlistReport,
@@ -239,6 +241,77 @@ def render_trend_report_md(trends: list[SiteTrend]) -> str:
         lines.append(f"## {icon.get(t.trend, t.trend.value.upper())} — {t.site_name}")
         lines.append(f"Based on {t.runs_considered} recorded run(s), this run included.")
         lines.append(t.explanation)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_review_md(reviews_by_site: dict[str, ReviewResult]) -> str:
+    """Second-pass critic verdicts on this run's drafted community alert
+    bulletins - see glacierwatch/agents/alert_reviewer.py. Potentially
+    several sites' reviews in one file, one section per site (a run can
+    have multiple priority sites in the same week) - keyed by site_id
+    (see WatchRun.reviews / check_alerts_guardrail), used directly as the
+    section heading since ReviewResult itself carries no display name;
+    always sorted for a stable, readable order. Plain rendering of
+    validated ReviewResult objects, same discipline as every other
+    render_* function here - never the model's own retelling."""
+    lines = ["# Community Alert Bulletin Review", "", DISCLAIMER, ""]
+
+    if not reviews_by_site:
+        lines.append("No community alerts were drafted this run - nothing to review.")
+        return "\n".join(lines)
+
+    approved_count = sum(1 for r in reviews_by_site.values() if r.approved)
+    lines.append(f"**{approved_count} of {len(reviews_by_site)} alert(s) approved with no issues found.**")
+    lines.append("")
+
+    for site_id in sorted(reviews_by_site):
+        review = reviews_by_site[site_id]
+        headline = "✅ APPROVED — no concrete issues found" if review.approved else "⚠️ ISSUES FOUND"
+        issues_md = "\n".join(f"- {issue}" for issue in review.issues) if review.issues else "No issues found."
+        lines.append(f"## {site_id}")
+        lines.append(f"**Verdict:** {headline}")
+        lines.append("")
+        lines.append(f"**Summary:** {review.summary}")
+        lines.append("")
+        lines.append("**Issues:**")
+        lines.append(issues_md)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_guardrail_md(results_by_site: dict[str, GuardrailResult]) -> str:
+    """Deterministic + agent-based guardrail scan results for this run's
+    drafted community alert bulletins - see glacierwatch/tools/guardrail.py.
+    One section per site (keyed by site_id, same convention as
+    render_review_md above), always sorted for a stable order. Plain
+    rendering of validated GuardrailResult objects - this is GlacierWatch's
+    last, enforced check that no bulletin contains language that sounds
+    like a prediction of when or whether a hazard will occur."""
+    lines = ["# Community Alert Bulletin Guardrail Check", "", DISCLAIMER, ""]
+
+    if not results_by_site:
+        lines.append("No community alerts were drafted this run - nothing to check.")
+        return "\n".join(lines)
+
+    total_findings = sum(len(r.findings) for r in results_by_site.values())
+    lines.append(f"**{total_findings} finding(s) across {len(results_by_site)} alert(s).**")
+    lines.append("")
+
+    def finding_block(finding) -> str:
+        return f"### [{finding.rule}]\n- **Excerpt:** \"{finding.excerpt}\"\n- **Why:** {finding.explanation}\n"
+
+    for site_id in sorted(results_by_site):
+        result = results_by_site[site_id]
+        headline = "✅ PASSED — no prediction-language findings" if result.passed else "⚠️ FLAGGED LANGUAGE"
+        findings_md = "\n".join(finding_block(f) for f in result.findings) or "No issues found."
+        lines.append(f"## {site_id}")
+        lines.append(f"**Verdict:** {headline}")
+        lines.append("")
+        lines.append("**Findings:**")
+        lines.append(findings_md)
         lines.append("")
 
     return "\n".join(lines)

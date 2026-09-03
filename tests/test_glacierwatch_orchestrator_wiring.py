@@ -11,12 +11,16 @@ from pathlib import Path
 import httpx
 
 import glacierwatch.orchestrator as orchestrator_module
+import glacierwatch.tools.guardrail as guardrail_module
 from glacierwatch.models import (
     CommunityAlertBulletin,
     CurrentConditions,
     DownstreamSettlement,
+    GuardrailFinding,
+    GuardrailResult,
     HistoryEntry,
     PriorityLevel,
+    ReviewResult,
     RunHistory,
     SeismicEvent,
     SiteRiskBrief,
@@ -477,3 +481,113 @@ def test_build_field_inspection_schedule_includes_rising_trend_routine_site_as_b
     assert "Scheduled 2 field inspection stop(s)" in result
     scheduled_ids = {s.site_id for s in run.inspection_schedule.stops}
     assert scheduled_ids == {priority_site.id, routine_site.id}
+
+
+def _run_with_one_drafted_alert(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "draft_community_alert", _fake_draft_community_alert)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.PRIORITY,
+            rationale="fake rationale", active_triggers=["fake trigger"], recommended_action="fake action",
+        ),
+    ]
+    orchestrator.tool.draft_community_alerts()
+    return run, orchestrator
+
+
+def test_review_community_alerts_zero_alerts_is_graceful_noop(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    run.briefs = [
+        SiteRiskBrief(
+            site_id="south-lhonak", site_name="South Lhonak Lake", priority_level=PriorityLevel.ROUTINE,
+            rationale="fake rationale", recommended_action="fake action",
+        ),
+    ]
+    orchestrator.tool.draft_community_alerts()
+    assert run.alerts == []
+
+    result = _tool_text(orchestrator.tool.review_community_alerts())
+    assert "nothing to review" in result.lower()
+    assert run.reviews == {}
+    assert not (tmp_path / "alerts_review.md").exists()
+
+
+def test_review_community_alerts_capped_at_one_revision_pass(tmp_path: Path, monkeypatch):
+    run, orchestrator = _run_with_one_drafted_alert(tmp_path, monkeypatch)
+
+    call_count = {"n": 0}
+
+    def _fake_review_alert(alert, brief):
+        call_count["n"] += 1
+        return ReviewResult(approved=False, issues=["Fabricated issue for the test."], summary="Needs work.")
+
+    monkeypatch.setattr(orchestrator_module, "review_alert", _fake_review_alert)
+
+    first = _tool_text(orchestrator.tool.review_community_alerts())
+    assert "1 issue(s)" in first
+    assert call_count["n"] == 1
+    assert run.review_revision_count == 1
+
+    # Calling it again must NOT invoke the mocked reviewer a second time -
+    # the cap is enforced in plain code, not just prompted.
+    second = _tool_text(orchestrator.tool.review_community_alerts())
+    assert "Maximum review-revision pass" in second
+    assert call_count["n"] == 1
+    assert run.review_revision_count == 1
+
+    assert (tmp_path / "alerts_review.md").exists()
+
+
+def test_review_community_alerts_approved_writes_file(tmp_path: Path, monkeypatch):
+    run, orchestrator = _run_with_one_drafted_alert(tmp_path, monkeypatch)
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "review_alert",
+        lambda alert, brief: ReviewResult(approved=True, issues=[], summary="Looks good."),
+    )
+
+    result = _tool_text(orchestrator.tool.review_community_alerts())
+    assert "no issues found" in result.lower()
+    assert run.review_revision_count == 0
+    assert (tmp_path / "alerts_review.md").exists()
+    review_md = (tmp_path / "alerts_review.md").read_text()
+    assert "gepang-gath" in review_md
+
+
+def test_check_alerts_guardrail_zero_alerts_is_graceful_noop(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    result = _tool_text(orchestrator.tool.check_alerts_guardrail())
+    assert "nothing to guardrail-check" in result.lower()
+    assert run.guardrails == {}
+    assert not (tmp_path / "alerts_guardrail.md").exists()
+
+
+def test_check_alerts_guardrail_writes_file_when_alerts_exist(tmp_path: Path, monkeypatch):
+    run, orchestrator = _run_with_one_drafted_alert(tmp_path, monkeypatch)
+
+    def _fake_agent_guardrail_check(alert_text):
+        return GuardrailResult(
+            passed=False,
+            findings=[
+                GuardrailFinding(
+                    rule="prediction_language",
+                    excerpt="will occur",
+                    explanation="Test finding.",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(guardrail_module, "agent_guardrail_check", _fake_agent_guardrail_check)
+
+    result = _tool_text(orchestrator.tool.check_alerts_guardrail())
+    assert "1 finding(s)" in result
+    assert (tmp_path / "alerts_guardrail.md").exists()
+    guardrail_md = (tmp_path / "alerts_guardrail.md").read_text()
+    assert "prediction_language" in guardrail_md
+    assert run.guardrails["gepang-gath"].passed is False

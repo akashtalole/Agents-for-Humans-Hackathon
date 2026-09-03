@@ -23,15 +23,18 @@ import httpx
 from strands import Agent, tool
 
 from glacierwatch.agents.alert_drafter import draft_community_alert
+from glacierwatch.agents.alert_reviewer import review_alert
 from glacierwatch.agents.report_drafter import draft_watchlist_report
 from glacierwatch.agents.risk_assessor import assess_site
 from glacierwatch.config import create_agent
 from glacierwatch.models import (
     CommunityAlertBulletin,
     CurrentConditions,
+    GuardrailResult,
     HistoryEntry,
     InspectionSchedule,
     PriorityLevel,
+    ReviewResult,
     RunHistory,
     SiteRiskBrief,
     SiteTrend,
@@ -40,16 +43,20 @@ from glacierwatch.models import (
     WatchSite,
 )
 from glacierwatch.rendering import (
+    DISCLAIMER,
     render_community_alert_md,
     render_community_alerts_index_md,
     render_conditions_md,
+    render_guardrail_md,
     render_inspection_schedule_md,
+    render_review_md,
     render_site_profile_md,
     render_trend_report_md,
     render_watchlist_report_md,
 )
 from glacierwatch.tools.documents import save_text_file
 from glacierwatch.tools.downstream import load_downstream_exposure
+from glacierwatch.tools.guardrail import run_guardrail_check
 from glacierwatch.tools.history import append_entries, compute_site_trends, load_history, save_history
 from glacierwatch.tools.scheduler import build_inspection_schedule
 from glacierwatch.tools.seismic import fetch_seismic_events
@@ -74,7 +81,36 @@ For every run, always execute the full pipeline in this order:
 4. record_run_history_and_detect_trends
 5. draft_watchlist_report
 6. draft_community_alerts
-7. build_field_inspection_schedule
+7. review_community_alerts
+8. check_alerts_guardrail
+9. build_field_inspection_schedule
+
+Step 7 is a skeptical second reviewer that compares every drafted community \
+alert bulletin against the SiteRiskBrief it was drafted from, checking for a \
+priority-level mismatch, invented specifics not present in the brief or \
+settlement data, and - most importantly - any language anywhere in a \
+bulletin that sounds like a prediction of when or whether an avalanche or \
+glacial lake outburst flood will occur. If zero alerts were drafted this \
+run (the common case - most weeks have zero priority sites), this tool \
+reports that cleanly and does nothing; call it anyway, right after \
+draft_community_alerts, so you don't have to reason about whether it's \
+needed. If it finds real issues, revise by calling draft_community_alerts \
+again with the feedback in mind, then call review_community_alerts once \
+more to confirm the fix - but this revision loop is capped at ONE pass for \
+the whole batch, enforced in code, not just by this instruction: calling \
+review_community_alerts a second time after a revision already happened \
+returns immediately without re-reviewing, so you cannot loop forever \
+chasing a perfect review even if you wanted to. Treat "maximum \
+review-revision pass already used" as your signal to move on.
+
+Step 8 runs an enforced guardrail check on the CURRENT community alert \
+bulletin text for prediction language specifically - GlacierWatch's one \
+non-negotiable rule is that it never claims to predict if, when, or where a \
+hazard will occur, and this step is the last, code-enforced line of defense \
+for that rule before a human ever sees these bulletins. Always call it \
+after review_community_alerts, whether or not that review found issues - \
+it is a separate, independent check, not a substitute for the review. It \
+also no-ops cleanly when zero alerts were drafted this run.
 
 Then write a final answer for a busy official who has 30 seconds. Your tool \
 results only give you counts and filenames, not the actual rationale text \
@@ -94,6 +130,11 @@ what it portends.
 - One line stating how many community alert bulletins were drafted (state \
 the count only, from the draft_community_alerts tool result - never invent \
 settlement names or details) and a pointer to community_alerts_index.md.
+- Only when at least one community alert bulletin was drafted this run: one \
+line stating how many review issues and how many guardrail findings were \
+found (counts only, from the review_community_alerts and \
+check_alerts_guardrail tool results) and a pointer to alerts_review.md and \
+alerts_guardrail.md.
 - One line stating how many stops were scheduled for the field team's \
 inspection route this week (state the count only, from the \
 build_field_inspection_schedule tool result) and a pointer to \
@@ -122,6 +163,9 @@ class WatchRun:
     history: RunHistory = field(default_factory=RunHistory)
     trends: list[SiteTrend] = field(default_factory=list)
     inspection_schedule: InspectionSchedule | None = None
+    reviews: dict[str, ReviewResult] = field(default_factory=dict)
+    review_revision_count: int = 0
+    guardrails: dict[str, GuardrailResult] = field(default_factory=dict)
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -307,6 +351,80 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def review_community_alerts() -> str:
+        """Review every drafted community alert bulletin against its site's
+        risk brief for accuracy - wrong priority level, invented specifics,
+        or (most importantly) any language that sounds like a prediction of
+        when/whether the hazard will occur. Call after draft_community_alerts.
+        If there are zero alerts this run (no priority sites), this reports
+        that cleanly and does nothing - not an error. If it finds real
+        issues, revise by calling draft_community_alerts again, then call
+        this tool again - but this is capped at ONE revision pass for the
+        whole batch; calling it again after a revision already happened
+        returns immediately without re-reviewing."""
+        if not run.alerts:
+            msg = "No community alerts this run - nothing to review."
+            run.activity_log.append(msg)
+            return msg
+        if run.review_revision_count >= 1:
+            msg = "Maximum review-revision pass (1) already used; proceeding without a further review."
+            run.activity_log.append(msg)
+            return msg
+        briefs_by_id = {b.site_id: b for b in run.briefs}
+        run.reviews = {a.site_id: review_alert(a, briefs_by_id[a.site_id]) for a in run.alerts}
+        save_text_file(str(out_dir / "alerts_review.md"), render_review_md(run.reviews))
+        any_issues = any(not r.approved for r in run.reviews.values())
+        if any_issues:
+            run.review_revision_count += 1
+            n_issues = sum(len(r.issues) for r in run.reviews.values())
+            msg = (
+                f"Review found {n_issues} issue(s) across {len(run.reviews)} alert(s) - revise by "
+                "calling draft_community_alerts again, then call review_community_alerts once more. "
+                "See alerts_review.md."
+            )
+        else:
+            msg = f"Reviewed {len(run.reviews)} alert(s), no issues found. See alerts_review.md."
+        run.activity_log.append(msg)
+        return msg
+
+    @tool
+    def check_alerts_guardrail() -> str:
+        """Run GlacierWatch's enforced, non-negotiable guardrail check on the
+        CURRENT community_alert_<site_id>.md content for every alert this
+        run - a deterministic keyword scan plus a small independent agent
+        check for language that sounds like a prediction of when or whether
+        an avalanche or glacial lake outburst flood will occur, GlacierWatch's
+        single non-negotiable rule. Must be called after
+        review_community_alerts, whether or not that review found issues -
+        this is a separate, independent safety check, not a substitute for
+        the review. If there are zero alerts this run, this reports that
+        cleanly and does nothing - not an error."""
+        if not run.alerts:
+            msg = "No community alerts this run - nothing to guardrail-check."
+            run.activity_log.append(msg)
+            return msg
+        run.guardrails = {}
+        for alert in run.alerts:
+            alert_path = out_dir / f"community_alert_{alert.site_id}.md"
+            alert_text = alert_path.read_text() if alert_path.exists() else render_community_alert_md(alert)
+            # Every rendered bulletin includes the fixed DISCLAIMER boilerplate,
+            # which itself explicitly names "will occur" in a negated, safe
+            # context ("...cannot predict whether, when, or where...will
+            # occur"). That's the tool's own safety framing, not generated
+            # content to check - strip it before scanning so it can't produce
+            # a false positive against the very check that enforces it.
+            alert_text = alert_text.replace(DISCLAIMER, "")
+            run.guardrails[alert.site_id] = run_guardrail_check(alert_text)
+        save_text_file(str(out_dir / "alerts_guardrail.md"), render_guardrail_md(run.guardrails))
+        total_findings = sum(len(g.findings) for g in run.guardrails.values())
+        msg = (
+            f"Guardrail check complete on {len(run.guardrails)} alert(s). {total_findings} finding(s). "
+            "See alerts_guardrail.md."
+        )
+        run.activity_log.append(msg)
+        return msg
+
+    @tool
     def build_field_inspection_schedule() -> str:
         """Build this week's field team inspection route: which sites the
         team should physically visit, capped by field-team capacity
@@ -359,6 +477,8 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
             record_run_history_and_detect_trends,
             draft_watchlist_report_tool,
             draft_community_alerts,
+            review_community_alerts,
+            check_alerts_guardrail,
             build_field_inspection_schedule,
         ],
     )
