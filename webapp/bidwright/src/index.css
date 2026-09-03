@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Markdown rendering for the tab content */
+.markdown-body h1 {
+  @apply mb-4 mt-2 text-2xl font-bold text-slate-900 dark:text-slate-50;
+}
+.markdown-body h2 {
+  @apply mb-3 mt-6 text-xl font-semibold text-slate-900 dark:text-slate-50;
+}
+.markdown-body h3 {
+  @apply mb-2 mt-5 text-lg font-semibold text-slate-900 dark:text-slate-50;
+}
+.markdown-body p {
+  @apply mb-3 leading-relaxed text-slate-700 dark:text-slate-300;
+}
+.markdown-body ul {
+  @apply mb-3 ml-5 list-disc space-y-1 text-slate-700 dark:text-slate-300;
+}
+.markdown-body ol {
+  @apply mb-3 ml-5 list-decimal space-y-1 text-slate-700 dark:text-slate-300;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+  @apply mb-0 mt-1;
+}
+.markdown-body strong {
+  @apply font-semibold text-slate-900 dark:text-slate-100;
+}
+.markdown-body code {
+  @apply rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-indigo-700 dark:bg-slate-800 dark:text-indigo-300;
+}
+.markdown-body pre {
+  @apply mb-3 overflow-x-auto rounded-lg bg-slate-900 p-3 text-slate-100;
+}
+.markdown-body pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+.markdown-body blockquote {
+  @apply mb-3 border-l-4 border-indigo-300 pl-4 italic text-slate-600 dark:border-indigo-700 dark:text-slate-400;
+}
+.markdown-body hr {
+  @apply my-6 border-slate-200 dark:border-slate-800;
+}
+.markdown-body a {
+  @apply text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400;
+}
+.markdown-body table {
+  @apply mb-3 w-full border-collapse text-left text-sm;
+}
+.markdown-body th,
+.markdown-body td {
+  @apply border border-slate-200 px-3 py-2 dark:border-slate-700;
+}
+.markdown-body th {
+  @apply bg-slate-100 font-semibold dark:bg-slate-800;
+}
+
+@keyframes blink-caret {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.log-cursor {
+  animation: blink-caret 1s step-end infinite;
+}

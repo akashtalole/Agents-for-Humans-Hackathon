@@ -289,6 +289,72 @@ and downloadable drafts.
 
 Check which model provider will be used at any time with `bidwright status`.
 
+## Web UI
+
+A second, more modern front end alongside the Streamlit demo: a FastAPI
+backend (`bidwright/api.py`) plus a React + TypeScript + Tailwind CSS
+single-page app (`webapp/bidwright/`), served from the same origin so
+there's one process and one URL in production. It drives the exact same
+`run_bid_job()` pipeline as the CLI and Streamlit demo — same orchestrator,
+same Pydantic-validated sub-agents, same deterministic rendered files — and
+preserves the identical trust hierarchy: the status badge and
+`decisions_needed.md` (and the other generated `.md`/`.ics` files) are the
+authoritative output; the orchestrator's own free-text reply is shown in a
+tab labeled **"Agent's Own Summary (unverified)"** with the same caption
+warning the Streamlit demo uses, never as the primary result.
+
+**Endpoints:** `GET /api/status` (model/credential status for the header
+pill), `POST /api/runs` (multipart upload or the bundled example, runs in a
+background thread, returns a `job_id` immediately rather than blocking the
+HTTP request on a multi-minute agent run), `GET /api/runs/{id}` (status,
+status badge, file list, summary text), `GET /api/runs/{id}/events`
+(Server-Sent Events — one line per distinct tool call, for the frontend's
+live activity log), and `GET /api/runs/{id}/files/{name}` (fetches one
+generated file, with path-traversal protection).
+
+**Architectural note — SSE via a plain queue, not a framework object:** the
+Streamlit demo's `stream_callback` has to explicitly re-attach Streamlit's
+`ScriptRunContext` on every callback invocation (see
+`docs/bidwright/screenshots/NOTES.md` for the real `NoSessionContext` crash
+this works around), because Strands runs the agent — and therefore every
+`callback_handler` call — on its own background thread, which never
+receives Streamlit's thread-local session state. The FastAPI backend
+sidesteps this whole category of bug by construction: its callback only
+pushes a plain dict onto a thread-safe `queue.Queue` (no session, no
+framework object, nothing thread-affine to forget to re-attach), and the
+`/api/runs/{id}/events` SSE endpoint drains that queue from the asyncio
+event loop via `run_in_executor`. Simpler than the Streamlit workaround, and
+there's no framework session object in the picture at all to get wrong.
+
+### Running it locally
+
+```bash
+pip install -e ".[api,ui,dev]"       # api + ui, since app_streamlit.py must keep working too
+cd webapp/bidwright && npm install && npm run build && cd ../..
+python server_bidwright.py           # or: uvicorn bidwright.api:app --reload
+```
+
+Then open `http://localhost:8000/`. For frontend development with hot
+reload instead of a full rebuild on every change, run the backend as above
+in one terminal and `npm run dev` (from `webapp/bidwright/`) in another —
+Vite's dev server proxies `/api/*` to `localhost:8000` (see
+`webapp/bidwright/vite.config.ts`), so no CORS setup is needed either way.
+
+### Deploying
+
+`Dockerfile.bidwright.webapp` (repo root) is a two-stage build — a
+`node:20-slim` stage builds the React app, a `python:3.11-slim` stage
+installs `bidwright` and serves the built frontend as static files
+alongside the API. See
+[`deploy/ecs-express/bidwright/README.md`](deploy/ecs-express/bidwright/README.md)
+for one-shot `setup.sh`/`teardown.sh` scripts that deploy this image to
+[Amazon ECS Express Mode](https://aws.amazon.com/blogs/containers/) — a
+single AWS CLI call that provisions Fargate compute, a gateway, and a
+public HTTPS URL together. Like the AgentCore deployment path below, this
+is optional, stretch-goal territory: everything above runs entirely
+locally without it, and (per that README's cost warning) it creates real
+billable AWS resources.
+
 ## Project layout
 
 ```
@@ -309,11 +375,16 @@ bidwright/
   orchestrator.py             Orchestrator Agent (agents-as-tools) + shared BidJob state
   pipeline.py                 run_bid_job() convenience wrapper used by CLI/UI/AgentCore
   cli.py                      `bidwright run` / `bidwright status`
-app_streamlit.py             Demo UI
+  api.py                      FastAPI backend for the web UI
+app_streamlit.py             Streamlit demo UI
+server_bidwright.py          FastAPI web UI entrypoint (python server_bidwright.py)
+webapp/bidwright/            React + TypeScript + Tailwind frontend for the web UI
 agentcore_app.py             Optional Bedrock AgentCore Runtime entrypoint
+Dockerfile.bidwright.webapp  Container image for the FastAPI + React web UI
 examples/                    Sample RFP + company profile (with a deliberate insurance gap)
 tests/                       Unit tests (no network) + an opt-in live-model integration test
-deploy/                       Dockerfile + AgentCore deployment notes
+deploy/                       Dockerfile + AgentCore deployment notes, plus ECS Express Mode
+                              deployment scripts for the web UI (deploy/ecs-express/bidwright/)
 ```
 
 ## Testing
