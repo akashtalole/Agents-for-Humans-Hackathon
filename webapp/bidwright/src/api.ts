@@ -22,13 +22,40 @@ export interface StatusBadge {
   message: string;
 }
 
+export interface ReviewVerdict {
+  approved: boolean;
+  issues: string[];
+}
+
+export interface GuardrailFinding {
+  rule: string;
+  excerpt: string;
+  explanation: string;
+}
+
+export interface GuardrailResult {
+  passed: boolean;
+  findings: GuardrailFinding[];
+}
+
+export type RunStatusValue = "running" | "awaiting_approval" | "completed" | "rejected" | "failed";
+
 export interface RunStatus {
   job_id: string;
-  status: "running" | "completed" | "failed";
+  status: RunStatusValue;
   error: string | null;
   status_badge: StatusBadge | null;
   files: RunFile[] | null;
   summary_text: string | null;
+  draft_text: string | null;
+  review: ReviewVerdict | null;
+  guardrail: GuardrailResult | null;
+  reject_reason: string | null;
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
 }
 
 export async function fetchStatus(): Promise<StatusResponse> {
@@ -79,4 +106,35 @@ export function runFileUrl(jobId: string, filename: string): string {
 
 export function runEventsUrl(jobId: string): string {
   return `/api/runs/${jobId}/events`;
+}
+
+async function postJson<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(detail.detail || `POST ${url} failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function approveRun(jobId: string, editedText?: string): Promise<RunStatus> {
+  return postJson(`/api/runs/${jobId}/approve`, editedText !== undefined ? { edited_text: editedText } : {});
+}
+
+export async function rejectRun(jobId: string, reason?: string): Promise<RunStatus> {
+  return postJson(`/api/runs/${jobId}/reject`, reason !== undefined ? { reason } : {});
+}
+
+export async function sendChatMessage(jobId: string, message: string): Promise<{ reply: string }> {
+  return postJson(`/api/runs/${jobId}/chat`, { message });
+}
+
+export async function fetchChatHistory(jobId: string): Promise<{ messages: ChatMessage[] }> {
+  const res = await fetch(`/api/runs/${jobId}/chat`);
+  if (!res.ok) throw new Error(`GET /api/runs/${jobId}/chat failed: ${res.status}`);
+  return res.json();
 }

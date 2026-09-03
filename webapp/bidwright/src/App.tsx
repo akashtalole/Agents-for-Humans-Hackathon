@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { createRun, fetchRun, fetchStatus, type RunStatus, type StatusResponse } from "./api";
 import { ActivityLog } from "./components/ActivityLog";
+import { ApprovalPanel } from "./components/ApprovalPanel";
+import { ChatPanel } from "./components/ChatPanel";
 import { Header } from "./components/Header";
 import { InputPanel } from "./components/InputPanel";
+import { RejectedPanel } from "./components/RejectedPanel";
 import { ResultsPanel } from "./components/ResultsPanel";
 import { useTheme } from "./useTheme";
 
@@ -71,7 +74,20 @@ function App() {
 
         {phase === "running" && jobId && <ActivityLog jobId={jobId} onDone={() => pollUntilDone(jobId)} />}
 
-        {phase === "done" && jobId && run && <ResultsPanel jobId={jobId} run={run} />}
+        {phase === "done" && jobId && run && run.status === "awaiting_approval" && (
+          <ApprovalPanel jobId={jobId} run={run} onUpdated={setRun} />
+        )}
+
+        {phase === "done" && jobId && run && run.status === "rejected" && <RejectedPanel run={run} />}
+
+        {phase === "done" && jobId && run && run.status === "completed" && <ResultsPanel jobId={jobId} run={run} />}
+
+        {phase === "done" && jobId && run && run.status === "failed" && <ResultsPanel jobId={jobId} run={run} />}
+
+        {phase === "done" &&
+          jobId &&
+          run &&
+          (run.status === "awaiting_approval" || run.status === "completed") && <ChatPanel jobId={jobId} />}
 
         {phase === "idle" && !runError && (
           <p className="rounded-xl border border-dashed border-slate-300 bg-white/60 px-5 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
