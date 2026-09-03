@@ -220,6 +220,9 @@ __marimo__/
 # BidWright generated output
 /output/
 
+# GlacierWatch persistent run-history file (default path, repo root)
+/glacierwatch_history.json
+
 # Claude Code local state (e.g. subagent worktree checkouts)
 /.claude/
 

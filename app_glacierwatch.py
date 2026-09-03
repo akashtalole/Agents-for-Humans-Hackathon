@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 import streamlit as st
+from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
 
 from glacierwatch.config import model_status
 from glacierwatch.pipeline import run_watchlist
@@ -48,8 +49,14 @@ if run_clicked:
     output_dir = workdir / "output"
     log_container = st.empty()
     log_lines: list[str] = []
+    # Strands runs the agent (and every callback_handler invocation) on a
+    # background ThreadPoolExecutor thread, which never receives Streamlit's
+    # ScriptRunContext. Without re-attaching it, the first st.* call from
+    # stream_callback raises NoSessionContext.
+    script_ctx = get_script_run_ctx()
 
     def stream_callback(**kwargs):
+        add_script_run_ctx(ctx=script_ctx)
         tool_use = kwargs.get("current_tool_use") or {}
         if tool_use.get("name"):
             line = f"🔧 calling `{tool_use['name']}`"
