@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100;
+}
+
+/* Lightweight markdown styling - keeps react-markdown output readable
+   without pulling in the @tailwindcss/typography plugin. */
+.markdown h1 {
+  @apply mb-4 mt-2 text-2xl font-bold text-slate-900 dark:text-slate-50;
+}
+.markdown h2 {
+  @apply mb-3 mt-6 text-xl font-semibold text-slate-900 dark:text-slate-50;
+}
+.markdown h3 {
+  @apply mb-2 mt-4 text-lg font-semibold text-slate-900 dark:text-slate-50;
+}
+.markdown p {
+  @apply mb-3 leading-relaxed;
+}
+.markdown ul {
+  @apply mb-3 list-disc space-y-1 pl-6;
+}
+.markdown ol {
+  @apply mb-3 list-decimal space-y-1 pl-6;
+}
+.markdown li {
+  @apply leading-relaxed;
+}
+.markdown strong {
+  @apply font-semibold text-slate-900 dark:text-slate-50;
+}
+.markdown a {
+  @apply text-teal-700 underline hover:text-teal-800 dark:text-teal-400 dark:hover:text-teal-300;
+}
+.markdown code {
+  @apply rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.9em] dark:bg-slate-800;
+}
+.markdown pre {
+  @apply mb-3 overflow-x-auto rounded-lg bg-slate-100 p-3 dark:bg-slate-800;
+}
+.markdown pre code {
+  @apply bg-transparent p-0;
+}
+.markdown blockquote {
+  @apply mb-3 border-l-4 border-slate-300 pl-4 italic text-slate-600 dark:border-slate-600 dark:text-slate-400;
+}
+.markdown hr {
+  @apply my-4 border-slate-200 dark:border-slate-700;
+}
+.markdown table {
+  @apply mb-3 w-full border-collapse text-left;
+}
+.markdown th,
+.markdown td {
+  @apply border border-slate-200 px-2 py-1 dark:border-slate-700;
+}
+
+/* Custom scrollbar for the activity log, both themes. */
+.activity-log::-webkit-scrollbar {
+  width: 8px;
+}
+.activity-log::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-slate-300 dark:bg-slate-700;
+}
