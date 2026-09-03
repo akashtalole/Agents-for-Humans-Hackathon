@@ -371,6 +371,9 @@ Pick the bundled example (or upload your own denial notice, plan summary, and
 medical record) and click **Run ClaimClarity** — it shows a live agent
 activity log, the decision summary, and downloadable drafts.
 
+Or run the FastAPI + React web UI (`python3 server_claimclarity.py`) — see
+**Web UI** below for setup and architecture.
+
 Check which model provider will be used at any time with `claimclarity status`.
 
 ## Project layout
@@ -396,13 +399,17 @@ claimclarity/
     appeal_drafter.py             Sub-agent: -> AppealPackage
     escalation_advisor.py         Sub-agent: -> EscalationPackage (external review + DOI complaint)
   orchestrator.py                 Orchestrator Agent (agents-as-tools) + shared ClaimCase state
-  pipeline.py                     run_claim_case() convenience wrapper used by CLI/UI/AgentCore
+  pipeline.py                     run_claim_case() convenience wrapper used by CLI/UI/API/AgentCore
+  api.py                          FastAPI backend for the web UI
   cli.py                          `claimclarity run` / `claimclarity status`
-app_claimclarity.py              Demo UI
+app_claimclarity.py              Streamlit demo UI
+server_claimclarity.py           Web UI entrypoint (FastAPI + built React frontend)
+webapp/claimclarity/              React + TypeScript + Tailwind frontend for the web UI
 agentcore_app_claimclarity.py    Optional Bedrock AgentCore Runtime entrypoint
 examples/claimclarity/           Sample denial notice + plan summary + medical record excerpt
 tests/                           Unit tests (no network) + an opt-in live-model integration test
-deploy/                          Dockerfile + AgentCore deployment notes
+deploy/                          Dockerfiles, AgentCore deployment notes, and ECS Express Mode
+                                  deploy scripts for the web UI (deploy/ecs-express/claimclarity/)
 claimclarity_history.json        Cross-run insurer accountability history (created on first run; local only)
 ```
 
@@ -429,6 +436,98 @@ included but skipped by default; opt in with:
 ```bash
 CLAIMCLARITY_RUN_INTEGRATION=1 pytest tests/test_claimclarity_pipeline_integration.py
 ```
+
+## Web UI
+
+Alongside the Streamlit demo, ClaimClarity also ships a genuinely modern
+web UI: a FastAPI backend (`claimclarity/api.py`) and a React + TypeScript
++ Tailwind CSS frontend (`webapp/claimclarity/`), served from one process
+in production.
+
+```bash
+pip install -e ".[api,ui,dev]"          # api adds fastapi/uvicorn; ui is
+                                         # still needed for app_claimclarity.py
+cd webapp/claimclarity && npm install && npm run build && cd ../..
+python3 server_claimclarity.py          # -> http://localhost:8000
+```
+
+For frontend development with hot reload, run the backend as above in one
+terminal and `npm run dev` (from `webapp/claimclarity/`) in another —
+`vite.config.ts` proxies `/api/*` to `localhost:8000`, so no CORS
+configuration is needed either in dev or in production (the built frontend
+is served from the same FastAPI process/origin as the API).
+
+**Same trust hierarchy as everywhere else in this repo.** The UI shows the
+same deterministic, code-rendered files as the headline result — the exact
+same tab order as the Streamlit demo (Decisions Needed / Claim Summary /
+Denial Findings / Appeal Package / External Review & Escalation) — and
+demotes the orchestrator's own free-text reply to a separate, clearly
+captioned "Agent's Own Summary (unverified)" tab, with the identical
+caption warning it can occasionally misstate specifics even when every
+generated file is correct. Nothing about moving to a web UI loosened that
+discipline.
+
+**Endpoints** (`claimclarity/api.py`): `GET /api/status` (model
+provider/readiness), `POST /api/runs` (multipart upload or the bundled
+example, returns a `uuid4` job id immediately, runs the pipeline on a
+background thread), `GET /api/runs/{job_id}` (status, the same
+success/warning/info status-badge logic as the Streamlit demo, the file
+manifest, and `summary_text`), `GET /api/runs/{job_id}/events`
+(Server-Sent Events, one tool-call name per line, deduped, for the live
+activity log), and `GET /api/runs/{job_id}/files/{filename}` (raw file
+content, path-traversal-checked against the job's own output directory).
+
+**Architectural improvement over the Streamlit demo's callback-threading
+workaround.** Strands always runs the agent — and therefore every
+`callback_handler` invocation — on its own background thread. Streamlit's
+`st.*` calls are tied to a per-session `ScriptRunContext` that thread never
+receives by default, which is exactly the `NoSessionContext` crash a live
+Playwright run against the (now-fixed) Streamlit demo genuinely reproduced
+early in this project (see `docs/claimclarity/screenshots/NOTES.md`) — the
+fix there re-attaches Streamlit's script context to the callback on every
+invocation. The FastAPI backend sidesteps that whole class of bug by
+construction rather than by patching around it: `_run_job`'s
+`callback_handler` only ever does `events.put({"tool": name})` on a plain,
+thread-safe `queue.Queue` — it never touches a request, a session, or any
+other framework object that could be tied to a particular thread. The SSE
+endpoint (`GET /api/runs/{job_id}/events`) is the only thing that reads
+from that queue, via `await loop.run_in_executor(None, events.get)`, from
+whatever thread/task is serving that specific HTTP request. There is no
+context to lose, because nothing framework-specific ever crosses the
+thread boundary in the first place.
+
+**No authentication — honestly, on purpose, same as the rest of this
+repo's demos.** There is no login, no API key check, and no per-user
+isolation anywhere in `claimclarity/api.py`, matching the Streamlit demo's
+own complete lack of auth. The one mitigation that is in place: job ids are
+`uuid4` (see `POST /api/runs`), so a job cannot be guessed or enumerated —
+but that is "unguessable IDs," not access control, and it does nothing
+against someone who already has a job's URL, or against anyone who can
+reach the server's network at all. This matters more here than it would
+for a toy demo: this project handles denial notices and, optionally,
+medical record excerpts — health-adjacent, potentially sensitive data.
+**Do not deploy this publicly reachable with real patient data without
+adding an authentication/authorization layer in front of it first.** See
+`deploy/ecs-express/claimclarity/README.md`'s "Honest limitations" for the
+same warning repeated at the point where someone would actually be
+deploying this, plus two more gaps specific to that deployment path (the
+in-memory job store not being safe to scale past one task, and
+`ANTHROPIC_API_KEY` being passed as a plain container environment variable
+rather than a secret).
+
+**Deploying to AWS:** see
+[`deploy/ecs-express/claimclarity/README.md`](deploy/ecs-express/claimclarity/README.md)
+for deploying this web UI to Amazon ECS Express Mode (a single container,
+built from `Dockerfile.claimclarity.webapp`, behind a load-balanced HTTPS
+endpoint) — a different, separate deployment path from
+[`deploy/cloudshell/`](deploy/cloudshell/)'s Bedrock AgentCore path above,
+which deploys the *agent* rather than this *web UI*.
+
+Offline tests: `tests/test_claimclarity_api.py` covers the job lifecycle,
+the SSE stream's dedup behavior, upload vs. example flows, the 400
+no-documents case, and path-traversal rejection, with `run_claim_case`
+mocked the same way the orchestrator wiring tests mock sub-agent functions
+— no API key or network required.
 
 ## Deploying to Amazon Bedrock AgentCore (optional)
 
@@ -470,6 +569,13 @@ stretch goal, not a requirement — everything above runs standalone.
   falls back to the federal baseline for any other state rather than
   guessing at that state's specific process. A production deployment should
   expand `claimclarity/data/state_doi_reference.json` to full coverage.
+- **The web UI has no authentication**, matching the Streamlit demo's own
+  complete lack of it — job ids are unguessable (`uuid4`), which is not the
+  same thing as access control. See **Web UI** above for the full picture
+  and `deploy/ecs-express/claimclarity/README.md` for what that means if
+  you deploy it. Do not put real patient denial notices or medical record
+  excerpts through a publicly reachable deployment of this without adding
+  an auth layer first.
 - **What's actually been verified, precisely:** the tool functions (including
   ICD-10 and state DOI lookups against the bundled data, and the insurer
   accountability history's load/append/save/recurrence-detection logic —
@@ -498,4 +604,13 @@ stretch goal, not a requirement — everything above runs standalone.
   the orchestrator prompt, re-run
   `CLAIMCLARITY_RUN_INTEGRATION=1 pytest tests/test_claimclarity_pipeline_integration.py`
   with a working `ANTHROPIC_API_KEY` or Bedrock access rather than assuming
-  a prompt edit is safe.
+  a prompt edit is safe. The web UI has also been driven end to end with
+  Playwright against a real `ANTHROPIC_API_KEY` and the bundled example —
+  clicking Run, watching the live SSE activity log populate with real tool
+  calls, and reading the completed Appeal Package tab, which correctly
+  reproduced the same billing-error-vs-plan-exclusion distinction above,
+  with no `NoSessionContext`-class crash of any kind (see **Web UI**'s
+  architecture note for why that class of bug can't happen here). Docker
+  build and a live ECS Express Mode deploy were not exercised (no Docker
+  daemon or live AWS account in the environment this was built in) — see
+  `deploy/ecs-express/claimclarity/README.md`.
