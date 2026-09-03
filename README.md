@@ -6,7 +6,7 @@ someone's time — or, for GlacierWatch, a real ongoing disaster.
 
 | | Track | Pitch |
 |---|---|---|
-| **[BidWright](BIDWRIGHT.md)** | Professional Agents | Reads an RFP, checks a small business against every requirement, drafts the proposal, and only asks you to decide the things only you can decide. |
+| **[BidWright](BIDWRIGHT.md)** | Professional Agents | Reads an RFP, checks a small business against every requirement, drafts the proposal, and only asks you to decide the things only you can decide. Also ships a FastAPI + React web UI (`server_bidwright.py`), not just the Streamlit demo. |
 | **[ClaimClarity](CLAIMCLARITY.md)** | Everyday Agents | Reads a health insurance denial, checks it against real ICD-10 coding rules and your plan's own terms, and drafts the appeal — or tells you honestly when it's not worth fighting. Also ships a FastAPI + React web UI (`server_claimclarity.py`), not just the Streamlit demo. |
 | **[GlacierWatch](GLACIERWATCH.md)** | Good Neighbor Agents | Combines published, cited Himalayan glacial-hazard assessments with live weather and seismic data to prioritize monitoring attention this week — decision support for disaster management authorities, never a prediction of an avalanche or flood. Also has a FastAPI + React web UI (see [GLACIERWATCH.md's Web UI section](GLACIERWATCH.md#web-ui)), deployable to AWS via ECS Express Mode. |
 
@@ -23,7 +23,7 @@ independently tested, and documented in full in its own file linked above.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[ui,dev]"
 cp .env.example .env   # fill in ANTHROPIC_API_KEY, or configure AWS credentials for Bedrock
-pytest                 # 228 offline tests, no API key required
+pytest                 # 276 offline tests, no API key required
 ```
 
 Then jump into [BIDWRIGHT.md](BIDWRIGHT.md), [CLAIMCLARITY.md](CLAIMCLARITY.md),
@@ -36,19 +36,23 @@ locally? See [Deploying to AWS](#deploying-to-aws) below.
 ## Repository layout
 
 ```
-bidwright/                      BidWright package
+bidwright/                       BidWright package
 claimclarity/                    ClaimClarity package
 glacierwatch/                    GlacierWatch package
-app_streamlit.py                 BidWright demo UI
-app_claimclarity.py              ClaimClarity demo UI
-app_glacierwatch.py              GlacierWatch demo UI
+app_streamlit.py                 BidWright demo UI (Streamlit)
+app_claimclarity.py              ClaimClarity demo UI (Streamlit)
+app_glacierwatch.py              GlacierWatch demo UI (Streamlit)
+server_bidwright.py              BidWright web UI entrypoint (FastAPI + React)
+server_claimclarity.py           ClaimClarity web UI entrypoint (FastAPI + React)
+server_glacierwatch.py           GlacierWatch web UI entrypoint (FastAPI + React)
+webapp/                          Web UI frontends (React + TypeScript), one per project
 agentcore_app.py                 BidWright AgentCore entrypoint (optional)
 agentcore_app_claimclarity.py    ClaimClarity AgentCore entrypoint (optional)
 examples/                        Sample input data for BidWright/ClaimClarity
 tests/                           Unit tests for all three projects
-deploy/                          Dockerfiles, AgentCore deployment notes, and
-                                  automated CloudShell setup/teardown scripts
-                                  for BidWright/ClaimClarity
+deploy/                          Dockerfiles, AgentCore CloudShell scripts
+                                  (BidWright/ClaimClarity), and ECS Express
+                                  Mode web UI deploy scripts (all three)
 ```
 
 ## Deploying to AWS
@@ -65,3 +69,13 @@ all three projects run entirely locally without it. (GlacierWatch doesn't
 have an AgentCore/CloudShell deployment path — its web UI instead deploys to
 Amazon ECS Express Mode, GlacierWatch's first AWS deployment path of any
 kind; see [`deploy/ecs-express/glacierwatch/README.md`](deploy/ecs-express/glacierwatch/README.md).)
+
+Each project's FastAPI + React web UI (see the "Web UI" section in
+[BIDWRIGHT.md](BIDWRIGHT.md#web-ui), [CLAIMCLARITY.md](CLAIMCLARITY.md#web-ui),
+and [GLACIERWATCH.md](GLACIERWATCH.md#web-ui)) has its own separate
+deployment path to [Amazon ECS Express Mode](https://aws.amazon.com/blogs/containers/):
+[`deploy/ecs-express/bidwright/`](deploy/ecs-express/bidwright/),
+[`deploy/ecs-express/claimclarity/`](deploy/ecs-express/claimclarity/), and
+[`deploy/ecs-express/glacierwatch/`](deploy/ecs-express/glacierwatch/) — also
+optional, also creates billable AWS resources, read each directory's README
+first.

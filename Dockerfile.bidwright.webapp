@@ -1,0 +1,37 @@
+# BidWright web UI - FastAPI backend + React frontend, single image.
+#
+# Build (from the repo root):
+#   docker build -f Dockerfile.bidwright.webapp -t bidwright-webui .
+# Run:
+#   docker run --rm -p 8000:8000 -e ANTHROPIC_API_KEY=sk-... bidwright-webui
+#
+# Not exercised against a live AWS account in this sandbox - see
+# deploy/ecs-express/bidwright/README.md before pushing this to ECR/ECS.
+
+# --- Stage 1: build the React frontend -------------------------------------
+FROM node:20-slim AS frontend
+WORKDIR /app/webapp/bidwright
+COPY webapp/bidwright/package.json webapp/bidwright/package-lock.json ./
+RUN npm ci
+COPY webapp/bidwright/ ./
+RUN npm run build
+
+# --- Stage 2: the FastAPI app + its Python dependencies ---------------------
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+# Only what's needed to install the package and run the server - no build
+# toolchain, no frontend source.
+COPY pyproject.toml README.md ./
+COPY bidwright/ ./bidwright/
+COPY server_bidwright.py ./
+
+RUN pip install --no-cache-dir -e ".[api]"
+
+# Built frontend from stage 1 - bidwright/api.py mounts this directory as
+# static files (StaticFiles(..., html=True)) after all /api/* routes, so API
+# routes always take priority over the SPA catch-all.
+COPY --from=frontend /app/webapp/bidwright/dist ./webapp/bidwright/dist
+
+EXPOSE 8000
+CMD ["python", "server_bidwright.py"]

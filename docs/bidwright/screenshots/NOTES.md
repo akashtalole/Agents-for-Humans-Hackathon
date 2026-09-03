@@ -107,3 +107,53 @@ enumerates every checklist item as its own discrete gap versus grouping
 related shortfalls, not a bug. The one gap this run did surface (insurance
 below the required minimums) is real and consistently caught, since it's
 the one gap the example data is deliberately built around.
+
+## Web UI screenshots (`webui_01_initial.png` through `webui_03_results.png`)
+
+Added when the FastAPI + React web UI (`bidwright/api.py` +
+`webapp/bidwright/`) was built, on the `claude/webui-bidwright` branch.
+Genuine, unstaged output — no mocking, no editing of the app code to make
+the capture cooperate:
+
+1. Started the real server (`python server_bidwright.py`) with a real
+   `ANTHROPIC_API_KEY` in `.env` and the frontend already built
+   (`npm run build` in `webapp/bidwright/`, served by the FastAPI app's
+   `StaticFiles` mount).
+2. Drove it with Playwright (Chromium at `/opt/pw-browsers/chromium`,
+   headless) against `http://localhost:8000/` — no artifact sandbox
+   involved, this is a real server process.
+3. `webui_01_initial.png` — the initial page: gradient header, model-status
+   pill showing "Anthropic API direct (claude-sonnet-4-5-...)" with a green
+   dot, the input panel defaulted to the bundled example.
+4. Clicked **Run BidWright** against the bundled example
+   (`examples/sample_rfp.md` + `examples/company_profile.json`, same
+   inputs the Streamlit screenshots above use), waited for the first SSE
+   tool-call events to arrive, then captured `webui_02_running.png` — the
+   live activity log showing `🔧 calling `load_rfp_and_profile`` and
+   `🔧 calling `extract_rfp_requirements`` (real events straight off the
+   `/api/runs/{id}/events` stream, not staged text).
+5. Waited for the real run to finish end to end (a genuine multi-minute
+   Anthropic API run, not shortened or mocked), then captured
+   `webui_03_results.png` — the red "N blocking gap(s)" status banner, the
+   five tabs in the required order, and the Decisions Needed tab's real
+   rendered content plus its "Deadline reminder (.ics)" download button.
+   This run surfaced 7 blocking gaps (see the note above on run-to-run
+   variance — this is the same kind of LLM-driven variation as the
+   Streamlit captures, not a web-UI-specific issue).
+6. Also spot-checked (not saved as one of the three required screenshots):
+   dark mode via the header toggle renders correctly and persists across
+   reload via `localStorage`; a second full live run driven straight over
+   `curl` (bypassing the browser entirely) reached `status: "completed"`
+   with the expected `status_badge`/`files`/`summary_text` shape; the
+   `GET /api/runs/{id}/files/{name}` endpoint was exercised live for both
+   a `.md` file (`content-type: text/markdown`) and the `.ics` file
+   (`content-type: text/calendar`); and a live path-traversal attempt
+   (`..%2F..%2F..%2Fetc%2Fpasswd`) returned `404` with no file content, not
+   the contents of anything outside the job's own output directory.
+
+**Bugs found:** none. The browser's console was monitored for the entire
+run (`page.on("console")` / `page.on("pageerror")`) and reported zero
+errors from page load through run completion. No workaround was needed
+here, unlike the Streamlit `NoSessionContext` bug documented above — see
+`bidwright/api.py`'s module docstring for why this backend's
+queue-based callback design avoids that whole class of bug by construction.

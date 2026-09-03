@@ -219,6 +219,8 @@ __marimo__/
 
 # BidWright generated output
 /output/
+# BidWright persistent run-history file (default path, repo root)
+/bidwright_history.json
 
 # GlacierWatch persistent run-history file (default path, repo root)
 /glacierwatch_history.json
