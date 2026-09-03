@@ -33,6 +33,15 @@ def main(argv: list[str] | None = None) -> int:
             "A missing file just means this is the first run - it is created automatically, not an error."
         ),
     )
+    run_parser.add_argument(
+        "--max-field-stops",
+        type=int,
+        default=5,
+        help=(
+            "Maximum number of sites the field inspection scheduler selects for this week's route "
+            "(default: 5) - a real field team has limited capacity to physically visit sites in a week."
+        ),
+    )
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the live activity stream")
 
     subparsers.add_parser("status", help="Show which model provider GlacierWatch will use")
@@ -46,7 +55,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Model provider: {model_status()}", file=sys.stderr)
     callback_handler = None if args.quiet else _print_stream_event
 
-    result = run_watchlist(output_dir=args.out, history_file=args.history_file, callback_handler=callback_handler)
+    result = run_watchlist(
+        output_dir=args.out,
+        history_file=args.history_file,
+        max_field_stops=args.max_field_stops,
+        callback_handler=callback_handler,
+    )
 
     # Same discipline as bidwright/cli.py and claimclarity/cli.py: the
     # deterministic, code-rendered report is the trusted headline. The

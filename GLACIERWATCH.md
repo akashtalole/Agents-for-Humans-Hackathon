@@ -47,6 +47,18 @@ Every step above, including the two features already described, makes exactly on
 
 Honest limitations specific to this feature: it takes at least three recorded runs of the same site before a trend is anything but `insufficient_history` - a brand-new deployment, or a site just added to the watchlist, will show `insufficient_history` for weeks by design, not as a bug. And a `rising` trend describes already-observed conditions climbing run over run; it is not a forecast, does not mean an avalanche or GLOF is more likely, and a `flat` or `falling` classification does not mean a site is safe - every rendered file, including `trend_report.md`, says this explicitly.
 
+## Field Inspection Scheduler
+
+Everything above answers "which sites need attention this week" - correctly. What none of it answers is what a disaster-management field team actually does with that list on Monday morning. A real field team has limited capacity: it can only physically visit a handful of sites in a week, those sites are scattered across a mountainous region with real travel-time constraints, and a priority ranking on its own doesn't say which sites fit in a week or in what order to drive to them. Risk triage that never becomes an actual field team work plan is priority ranking, not decision support - this is the pipeline's seventh step, closing that specific gap:
+
+7. **Builds a field inspection schedule**: selects this week's `active_watch` sites at `priority` level first, then `elevated`, then (as a lower-priority bonus tier, capacity allowing) any `routine` site the trend tracker flagged as `rising` but not yet at priority level - a plain `routine`, non-trending site is never scheduled just to fill a spare slot, since a field team's limited time is better spent than confirming nothing is happening where nothing indicates anything is happening. `historical_case_study` sites (South Lhonak, Chorabari) are never candidates - they're reference cases for calibrating this tool, not places with anything left to inspect. The candidate list is capped at `--max-field-stops` (default 5, threaded through `glacierwatch/pipeline.py`'s `run_watchlist(max_field_stops=...)` into the orchestrator's `WatchRun`), dropping the lowest-priority overflow rather than crashing or silently scheduling more than capacity allows.
+
+**Visiting order is computed, not just priority-sorted.** `glacierwatch/tools/scheduler.py:build_inspection_schedule` orders the selected stops with a greedy nearest-neighbor route: start at the highest-priority selected site, then repeatedly jump to whichever unvisited stop is closest (haversine great-circle distance between lat/long points) until every stop is routed. **This is pure code, not an LLM call** - like trend classification, ordering a handful of stops by distance is a geometric/logistics optimization over structured numbers, exactly what this project's architecture already treats as plain code's job (see [Run History & Trend Early-Warning Tracker](#run-history--trend-early-warning-tracker) above).
+
+Outputs: `inspection_schedule.md` - an ordered stop list a field team lead can literally follow, each stop carrying its priority level, coordinates, and the same `SiteRiskBrief.rationale` an official reading `watchlist_report.md` would see for that site. Always written, even when zero sites qualify this week, with a clear "no inspection schedule was built" message rather than an error or a missing file - same convention as `community_alerts_index.md`'s zero-priority case.
+
+Honest limitation specific to this feature, stated in the rendered file itself: the route is a greedy nearest-neighbor heuristic, not a true Traveling Salesman Problem solve - finding the actual shortest route is NP-hard in general, and greedy nearest-neighbor can occasionally strand one far-away stop for last when visiting it earlier would have shortened the total trip. For the small number of stops a weekly capacity limit implies, that's an acceptable, instantly-computed tradeoff, but it is illustrative sequencing only. More importantly, haversine distance is straight-line ("as the crow flies") distance, not road distance - actual travel time along mountain switchback roads can be far longer than a straight-line number suggests, and the tool has no access to real road networks or conditions. The suggested order is a starting point, always subject to the field team's own local road knowledge, never a routing mandate.
+
 ## Architecture
 
 Same proven shape as this repo's other two entries: a Strands **"agents as tools"** orchestrator, validated Pydantic structured outputs at every step, and a deterministic, code-rendered report as the trusted output.
@@ -61,6 +73,7 @@ flowchart TD
     O -->|tool call| H["record_run_history_and_detect_trends\n(pure code, no LLM)"]
     O -->|tool call| D["draft_watchlist_report\n→ Report Drafter Agent"]
     O -->|tool call| C["draft_community_alerts\n→ Alert Drafter Agent\n(priority sites only)"]
+    O -->|tool call| S["build_field_inspection_schedule\n(pure code, no LLM)"]
 
     W -->|real HTTP calls| API1[Open-Meteo weather API]
     W -->|real HTTP calls| API2[USGS earthquake API]
@@ -73,17 +86,20 @@ flowchart TD
     H -->|SiteTrend per site| J
     D -->|WatchlistReport, trend-aware| J
     C -->|CommunityAlertBulletin| J
+    S -->|InspectionSchedule, routed| J
 
     J --> F1[site_profile_*.md]
     J --> F2[site_conditions_*.md]
     J --> F3["watchlist_report.md\n(+ trend early-warning line)"]
     J --> F5[trend_report.md]
     J --> F4["community_alert_*.md\n+ community_alerts_index.md"]
+    J --> F6[inspection_schedule.md]
 
     O -->|plain-English summary| U
     F3 -->|priority-ordered, disclaimed| U
     F5 -->|trend of observed conditions, not a forecast| U
     F4 -->|village-committee facing| V[Downstream community]
+    F6 -->|routed weekly work plan| T[Field inspection team]
 ```
 
 Design choices worth calling out:
@@ -108,7 +124,7 @@ Run the CLI:
 glacierwatch run --out output
 ```
 
-This streams each tool call as it happens (including the live weather/seismic API calls), then prints the deterministic weekly watchlist report, followed by the orchestrator's own summary, and writes `site_profile_*.md`, `site_conditions_*.md`, `watchlist_report.md`, `trend_report.md`, and (for any priority-level sites) `community_alert_*.md` plus `community_alerts_index.md` to `output/`. It also appends this run's signals to `./glacierwatch_history.json` (override with `--history-file`) - run it again next week against the same history file to start seeing trend classifications instead of `insufficient_history`.
+This streams each tool call as it happens (including the live weather/seismic API calls), then prints the deterministic weekly watchlist report, followed by the orchestrator's own summary, and writes `site_profile_*.md`, `site_conditions_*.md`, `watchlist_report.md`, `trend_report.md`, `inspection_schedule.md`, and (for any priority-level sites) `community_alert_*.md` plus `community_alerts_index.md` to `output/`. It also appends this run's signals to `./glacierwatch_history.json` (override with `--history-file`) - run it again next week against the same history file to start seeing trend classifications instead of `insufficient_history`. Use `--max-field-stops N` (default 5) to change how many sites the field inspection scheduler selects for the week.
 
 Or run the Streamlit demo:
 
@@ -138,6 +154,7 @@ glacierwatch/
     watchlist.py                 Loads the bundled reference data
     downstream.py                 Loads the bundled downstream-exposure data
     history.py                    Pure-code run-history load/append/save + trend classification
+    scheduler.py                  Pure-code field inspection route builder (haversine + nearest-neighbor)
     _http.py                      Shared retry helper for the two live API calls
   agents/
     risk_assessor.py              Sub-agent: WatchSite + CurrentConditions -> SiteRiskBrief
@@ -172,3 +189,4 @@ GLACIERWATCH_RUN_INTEGRATION=1 pytest tests/test_glacierwatch_pipeline_integrati
 - **Every fact in `glacierwatch/data/watchlist.json` is sourced** to specific published reporting (NRSC assessments, peer-reviewed papers, established news coverage) - see the `sources` field on each entry. Nothing there is estimated or invented.
 - **`glacierwatch/data/downstream_exposure.json` is explicitly the opposite of that:** demo-grade and mostly illustrative, not verified. Its `data_caveat` field says so, and most individual entries are marked "illustrative, unverified" rather than sourced. The one settlement backed by the same real published modeling as `watchlist.json` is Sissu village near Gepang Gath Lake. Before any real village committee acts on a `community_alert_*.md` bulletin, this file must be replaced with verified settlement and population data from the relevant state disaster management authority and national census - shipping placeholder population figures to a real community would be a serious harm this project takes seriously enough to flag loudly here, not just in the JSON comment.
 - **Trend detection needs a real run history to say anything.** A fresh `--history-file`, or a site newly added to the watchlist, reports `insufficient_history` for its first two runs by design - that is an honest "not enough data yet," not a bug or a hidden "nothing to worry about." And a `rising` classification describes already-observed numbers climbing run over run; it is not a forecast, it does not mean an avalanche or GLOF is more likely, and `flat`/`falling` does not mean a site is safe. See [Run History & Trend Early-Warning Tracker](#run-history--trend-early-warning-tracker) above.
+- **The field inspection route is a greedy nearest-neighbor heuristic, not an optimal route, and its distances are illustrative sequencing only.** `glacierwatch/tools/scheduler.py` orders stops by straight-line (haversine) distance between lat/long points - it has no access to actual mountain road networks, road conditions, seasonal closures, or real travel time, all of which can make the true driving order and duration very different from what the straight-line distance suggests. It is also not a true Traveling Salesman Problem solve, so even by straight-line distance it is not guaranteed to be the shortest possible route. `inspection_schedule.md` says this explicitly, and the suggested order is always subject to the field team's own local road knowledge, never a routing mandate. See [Field Inspection Scheduler](#field-inspection-scheduler) above.

@@ -9,8 +9,8 @@ TASK_PROMPT = (
     "Run this week's watchlist end to end: load the reference sites, fetch live "
     "conditions for every active_watch site, assess every site's priority level, "
     "record this run's history and detect any rising trends, draft the final "
-    "report, and draft community alert bulletins for any priority-level sites. "
-    "Then give me the summary."
+    "report, draft community alert bulletins for any priority-level sites, and "
+    "build this week's field inspection schedule. Then give me the summary."
 )
 
 
@@ -21,7 +21,10 @@ class WatchRunResult:
 
 
 def run_watchlist(
-    output_dir: str, history_file: str = "glacierwatch_history.json", callback_handler=None
+    output_dir: str,
+    history_file: str = "glacierwatch_history.json",
+    max_field_stops: int = 5,
+    callback_handler=None,
 ) -> WatchRunResult:
     """Run the full GlacierWatch pipeline for the bundled reference watchlist
     and return the result.
@@ -32,10 +35,14 @@ def run_watchlist(
     across runs even when `output_dir` changes week to week. A missing file
     is simply treated as "no prior runs yet", not an error.
 
+    `max_field_stops` caps how many sites the field inspection scheduler
+    (glacierwatch/tools/scheduler.py) selects for this week's route - a real
+    field team has limited capacity to physically visit sites in a week.
+
     Pass `callback_handler` (see Strands' Agent callback_handler parameter) to
     stream tool-call events live, e.g. for a UI activity log.
     """
-    run = WatchRun(output_dir=output_dir, history_file=history_file)
+    run = WatchRun(output_dir=output_dir, history_file=history_file, max_field_stops=max_field_stops)
     orchestrator = build_orchestrator(run, callback_handler=callback_handler)
     result = orchestrator(TASK_PROMPT)
     return WatchRunResult(run=run, summary_text=str(result))
