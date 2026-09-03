@@ -223,6 +223,73 @@ framework object anywhere in the callback path that could go missing on a
 different thread, so this class of bug isn't fixable-after-the-fact here,
 it's structurally absent.
 
+### Critic, guardrail, approval gate, and grounded chat
+
+The web UI adds a second layer of safety specifically around the one
+artifact this pipeline produces that leaves the tool entirely and reaches
+an actual downstream community: community alert bulletins
+(`community_alert_<site_id>.md`, drafted only for priority-level sites —
+most weeks draft zero, since most weeks have zero priority sites; when
+that's the case, all four pieces below no-op cleanly and a run goes
+straight to `"completed"`, same as before this work). None of this touches
+`watchlist_report.md`, `trend_report.md`, or `inspection_schedule.md` —
+those are internal, official-facing documents that don't leave the tool the
+way a community alert does.
+
+1. **Critic/reviewer agent** (`glacierwatch/agents/alert_reviewer.py`,
+   wired in as `review_community_alerts`). A second, skeptical pass over
+   every drafted bulletin against the `SiteRiskBrief` it came from — a
+   priority-level mismatch, an invented settlement/distance/population
+   figure, and above all any language that reads as a prediction of when
+   or whether the hazard will occur. A run's whole batch of alerts is
+   reviewed together, capped at exactly one revision pass — enforced in
+   plain code (`WatchRun.review_revision_count`), not just prompted, so
+   the orchestrator cannot loop forever chasing a perfect review.
+2. **Enforced guardrail check** (`glacierwatch/tools/guardrail.py`, wired
+   in as `check_alerts_guardrail`, run after the review) — the most
+   safety-critical piece of this whole feature set, and GlacierWatch's
+   last, code-enforced line of defense for its one non-negotiable rule.
+   `scan_prediction_language` is a **deterministic, offline, no-LLM**
+   regex scan for phrases like "will occur", "is certain to", "about to
+   breach" — the union of that scan and a small, separate
+   `agent_guardrail_check` for subtler phrasing a keyword scanner would
+   miss is what a run's `alerts_guardrail.md` reports. Because this check
+   scans each bulletin's *rendered* file content, and every rendered
+   bulletin carries the project's own `DISCLAIMER` text (which itself
+   names "will occur" in a negated, safe sentence — "...cannot predict
+   whether, when, or where...will occur"), the disclaimer is stripped
+   before scanning so the tool's own safety framing can't trip its own
+   guardrail.
+3. **Human-in-the-loop approval gate** (`glacierwatch/api.py` +
+   `ApprovalPanel.tsx`). A run that drafted at least one alert stops at
+   `"awaiting_approval"` instead of `"completed"` — a batch action, not a
+   per-site one, since a run's alerts were reviewed and guardrail-checked
+   together. The panel shows each bulletin's reviewer verdict, its
+   guardrail findings prominently in red when present, and an editable
+   text area; **Approve All** stays disabled behind an explicit
+   acknowledgment checkbox whenever any alert in the batch has a guardrail
+   finding, so a flagged bulletin can never be waved through by reflex.
+   `POST /approve` overwrites only the sites named in `edited_alerts`
+   (everything else keeps its drafted text) and moves the whole batch to
+   `"completed"`; `POST /reject` moves it to `"rejected"` with a stored
+   reason, leaving the original files on disk untouched for audit.
+4. **Grounded conversational follow-up** (`POST /api/runs/{id}/chat` +
+   `ChatPanel.tsx`), available once a run has finished. A small, fresh
+   Strands `Agent` per turn — no tools, no structured output — answers
+   using *only* that run's own generated `.md` files (capped at ~40,000
+   characters, dropping the numerous per-site alert/review/guardrail files
+   first if over the cap, `watchlist_report.md`/`trend_report.md` last).
+   Its system prompt explicitly instructs it to redirect, not answer, any
+   prediction-seeking question — verified live with "will Gepang Gath
+   flood this month?", which correctly opened with "I cannot and will not
+   predict whether, when, or where a glacial lake outburst flood will
+   occur" before pointing to the documented risk level and monitoring
+   recommendation instead. Every layer above adds a check on GlacierWatch's
+   own *generated* text; this one closes the remaining gap where a person
+   could just directly ask the tool to predict something, and reinforces
+   the same non-prediction line by construction rather than hoping the
+   model remembers it from a longer system prompt.
+
 ### Running it locally
 
 ```bash

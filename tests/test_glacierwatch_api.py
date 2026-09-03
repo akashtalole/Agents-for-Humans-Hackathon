@@ -7,16 +7,26 @@ TestClient/job store state via monkeypatching glacierwatch.api._jobs.
 """
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 
 import glacierwatch.api as api_module
-from glacierwatch.models import PriorityLevel, SiteRiskBrief, WatchlistReport, WatchSite
+from glacierwatch.models import (
+    CommunityAlertBulletin,
+    GuardrailFinding,
+    GuardrailResult,
+    PriorityLevel,
+    ReviewResult,
+    SiteRiskBrief,
+    WatchlistReport,
+    WatchSite,
+)
 from glacierwatch.orchestrator import WatchRun
 from glacierwatch.pipeline import WatchRunResult
-from glacierwatch.rendering import DISCLAIMER
+from glacierwatch.rendering import DISCLAIMER, render_community_alert_md
 
 
 @pytest.fixture(autouse=True)
@@ -274,3 +284,241 @@ def test_get_file_rejects_path_traversal(client, monkeypatch, bad_filename):
 def test_get_file_unknown_job_404(client):
     resp = client.get("/api/runs/does-not-exist/files/watchlist_report.md")
     assert resp.status_code == 404
+
+
+# --- Feature 3: human-in-the-loop approval gate -----------------------------
+
+def _fake_alert(site_id: str = "gepang-gath", site_name: str = "Gepang Gath Lake") -> CommunityAlertBulletin:
+    return CommunityAlertBulletin(
+        site_id=site_id,
+        site_name=site_name,
+        priority_level=PriorityLevel.PRIORITY,
+        situation_summary="fake situation summary",
+        recommended_actions=["Review local evacuation routes."],
+        settlements_to_notify=[],
+        alert_text_en="fake alert text",
+        alert_text_local="[Needs local-language review - no confident translation available]",
+    )
+
+
+def _fake_run_watchlist_with_alert(output_dir, history_file="glacierwatch_history.json", max_field_stops=5, callback_handler=None):
+    """Mimics run_watchlist() for a run with exactly one priority site and
+    one drafted (and reviewed/guardrailed) community alert bulletin."""
+    from pathlib import Path
+
+    run = WatchRun(output_dir=output_dir)
+    run.sites = [_fake_site("gepang-gath", "Gepang Gath Lake", "active_watch")]
+    brief = SiteRiskBrief(
+        site_id="gepang-gath", site_name="Gepang Gath Lake", priority_level=PriorityLevel.PRIORITY,
+        rationale="fake rationale", recommended_action="fake action",
+    )
+    run.briefs = [brief]
+    run.report = WatchlistReport(briefs=run.briefs, overall_summary="fake summary")
+
+    alert = _fake_alert()
+    run.alerts = [alert]
+    run.reviews = {"gepang-gath": ReviewResult(approved=True, issues=[], summary="Looks good.")}
+    run.guardrails = {
+        "gepang-gath": GuardrailResult(
+            passed=False,
+            findings=[
+                GuardrailFinding(rule="prediction_language", excerpt="will occur", explanation="Test finding.")
+            ],
+        )
+    }
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    (Path(output_dir) / "watchlist_report.md").write_text("# fake watchlist report\n")
+    (Path(output_dir) / f"community_alert_{alert.site_id}.md").write_text(render_community_alert_md(alert))
+
+    return WatchRunResult(run=run, summary_text="fake orchestrator summary text")
+
+
+def test_run_with_alerts_goes_to_awaiting_approval(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_with_alert)
+    job_id = client.post("/api/runs").json()["job_id"]
+
+    resp = _wait_for_completion(client, job_id)
+    data = resp.json()
+    assert data["status"] == "awaiting_approval"
+    assert data["status_badge"]["level"] == "warning"
+    assert "1 community alert(s)" in data["status_badge"]["message"]
+
+    assert len(data["alerts_for_approval"]) == 1
+    alert = data["alerts_for_approval"][0]
+    assert alert["site_id"] == "gepang-gath"
+    assert alert["site_name"] == "Gepang Gath Lake"
+    assert "fake alert text" in alert["text"]
+
+    assert data["reviews"]["gepang-gath"]["approved"] is True
+    assert data["guardrails"]["gepang-gath"]["passed"] is False
+    assert len(data["guardrails"]["gepang-gath"]["findings"]) == 1
+    assert data["guardrails"]["gepang-gath"]["findings"][0]["rule"] == "prediction_language"
+    assert data["reject_reason"] is None
+
+
+def test_run_with_zero_alerts_still_goes_straight_to_completed(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_factory(priority_count=0))
+    job_id = client.post("/api/runs").json()["job_id"]
+    resp = _wait_for_completion(client, job_id)
+    data = resp.json()
+    assert data["status"] == "completed"
+    assert data["alerts_for_approval"] is None
+    assert data["reviews"] is None
+    assert data["guardrails"] is None
+
+
+def test_approve_run_with_no_edits_keeps_original_text_and_completes(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_with_alert)
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={"edited_alerts": None})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "completed"
+    assert "fake alert text" in data["alerts_for_approval"][0]["text"]
+
+
+def test_approve_run_with_edits_overwrites_only_named_site(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_with_alert)
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(
+        f"/api/runs/{job_id}/approve",
+        json={"edited_alerts": {"gepang-gath": "EDITED ALERT TEXT"}},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "completed"
+    alert = data["alerts_for_approval"][0]
+    assert alert["text"] == "EDITED ALERT TEXT"
+
+    # A second GET reflects the same edited text, read fresh from disk.
+    data2 = client.get(f"/api/runs/{job_id}").json()
+    assert data2["alerts_for_approval"][0]["text"] == "EDITED ALERT TEXT"
+
+
+def test_approve_rejects_unknown_site_id(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_with_alert)
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={"edited_alerts": {"not-a-real-site": "x"}})
+    assert resp.status_code == 400
+
+
+def test_reject_run_stores_reason_and_sets_status(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_with_alert)
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/reject", json={"reason": "Needs more local review."})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "rejected"
+    assert data["status_badge"]["level"] == "error"
+    assert data["reject_reason"] == "Needs more local review."
+
+    # Original file untouched.
+    file_resp = client.get(f"/api/runs/{job_id}/files/community_alert_gepang-gath.md")
+    assert "fake alert text" in file_resp.text
+
+
+def test_approve_on_running_job_errors_cleanly(client, monkeypatch):
+    started = threading.Event()
+    finish = threading.Event()
+
+    def _slow_run_watchlist(output_dir, history_file="glacierwatch_history.json", max_field_stops=5, callback_handler=None):
+        started.set()
+        finish.wait(timeout=5.0)
+        return _fake_run_watchlist_factory(priority_count=0)(output_dir)
+
+    monkeypatch.setattr(api_module, "run_watchlist", _slow_run_watchlist)
+    job_id = client.post("/api/runs").json()["job_id"]
+    started.wait(timeout=5.0)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={"edited_alerts": None})
+    assert resp.status_code == 400
+    reject_resp = client.post(f"/api/runs/{job_id}/reject", json={"reason": None})
+    assert reject_resp.status_code == 400
+
+    finish.set()
+    _wait_for_completion(client, job_id)
+
+
+def test_approve_on_completed_job_without_alerts_errors(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_factory(priority_count=0))
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+    resp = client.post(f"/api/runs/{job_id}/approve", json={"edited_alerts": None})
+    assert resp.status_code == 400
+
+
+# --- Feature 4: conversational follow-up (grounded chat) -------------------
+
+def test_chat_on_running_job_returns_400(client, monkeypatch):
+    started = threading.Event()
+    finish = threading.Event()
+
+    def _slow_run_watchlist(output_dir, history_file="glacierwatch_history.json", max_field_stops=5, callback_handler=None):
+        started.set()
+        finish.wait(timeout=5.0)
+        return _fake_run_watchlist_factory(priority_count=0)(output_dir)
+
+    monkeypatch.setattr(api_module, "run_watchlist", _slow_run_watchlist)
+    job_id = client.post("/api/runs").json()["job_id"]
+    started.wait(timeout=5.0)
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "How many sites are tracked?"})
+    assert resp.status_code == 400
+
+    finish.set()
+    _wait_for_completion(client, job_id)
+
+
+def test_chat_on_failed_job_returns_400(client, monkeypatch):
+    def _raise(output_dir, history_file="glacierwatch_history.json", max_field_stops=5, callback_handler=None):
+        raise RuntimeError("simulated pipeline failure")
+
+    monkeypatch.setattr(api_module, "run_watchlist", _raise)
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "How many sites are tracked?"})
+    assert resp.status_code == 400
+
+
+def test_chat_on_completed_job_returns_reply_and_appends_history(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_watchlist", _fake_run_watchlist_factory(priority_count=0))
+    job_id = client.post("/api/runs").json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    captured_prompts = {}
+
+    class _FakeAgent:
+        def __init__(self, prompt):
+            captured_prompts["system_prompt"] = prompt
+
+        def __call__(self, message):
+            captured_prompts["message"] = message
+            return "There are 2 sites being tracked this week."
+
+    monkeypatch.setattr(api_module, "create_agent", lambda system_prompt: _FakeAgent(system_prompt))
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "How many sites are being tracked?"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["reply"] == "There are 2 sites being tracked this week."
+    assert "fake watchlist report" in captured_prompts["system_prompt"]
+    assert "NOT a prediction system" in captured_prompts["system_prompt"]
+    assert captured_prompts["message"] == "How many sites are being tracked?"
+
+    history_resp = client.get(f"/api/runs/{job_id}/chat")
+    assert history_resp.status_code == 200
+    messages = history_resp.json()["messages"]
+    assert messages == [
+        {"role": "user", "content": "How many sites are being tracked?"},
+        {"role": "assistant", "content": "There are 2 sites being tracked this week."},
+    ]

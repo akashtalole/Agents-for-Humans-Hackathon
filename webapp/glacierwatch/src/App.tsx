@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createRun, fetchRun, fetchStatus, watchRunEvents } from './api'
+import ApprovalPanel from './components/ApprovalPanel'
+import ChatPanel from './components/ChatPanel'
 import DisclaimerBanner from './components/DisclaimerBanner'
 import Header from './components/Header'
 import ResultsTabs from './components/ResultsTabs'
@@ -86,6 +88,30 @@ export default function App() {
           </div>
         )}
 
+        {result && result.status === 'awaiting_approval' && result.status_badge && (
+          <>
+            <StatusBadgeBanner badge={result.status_badge} />
+            <ApprovalPanel
+              jobId={jobId as string}
+              alerts={result.alerts_for_approval ?? []}
+              reviews={result.reviews}
+              guardrails={result.guardrails}
+              onResolved={setResult}
+            />
+          </>
+        )}
+
+        {result && result.status === 'rejected' && result.status_badge && (
+          <>
+            <StatusBadgeBanner badge={result.status_badge} />
+            <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
+              <p className="font-medium">This run's community alert bulletins were rejected and were not sent.</p>
+              {result.reject_reason && <p className="mt-1">Reason: {result.reject_reason}</p>}
+            </div>
+            {jobId && <ChatPanel jobId={jobId} />}
+          </>
+        )}
+
         {result && result.status === 'completed' && result.status_badge && (
           <>
             <StatusBadgeBanner badge={result.status_badge} />
@@ -95,6 +121,7 @@ export default function App() {
               files={result.files ?? []}
               summaryText={result.summary_text ?? '_Not available._'}
             />
+            {jobId && <ChatPanel jobId={jobId} />}
           </>
         )}
 
