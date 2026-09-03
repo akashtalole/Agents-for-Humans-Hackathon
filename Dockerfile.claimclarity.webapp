@@ -1,0 +1,29 @@
+# Multi-stage build for the ClaimClarity web UI: FastAPI backend + React
+# frontend, served from one container on one port. See
+# deploy/ecs-express/claimclarity/README.md for how this gets deployed to
+# Amazon ECS Express Mode.
+
+# --- Stage 1: build the React frontend -------------------------------------
+FROM node:20-slim AS frontend
+WORKDIR /frontend
+COPY webapp/claimclarity/package.json webapp/claimclarity/package-lock.json ./
+RUN npm ci
+COPY webapp/claimclarity/ ./
+RUN npm run build
+
+# --- Stage 2: Python API + static frontend ----------------------------------
+FROM python:3.11-slim
+WORKDIR /app
+
+COPY pyproject.toml ./
+COPY claimclarity ./claimclarity
+COPY server_claimclarity.py ./
+COPY examples ./examples
+
+RUN pip install --no-cache-dir ".[api]"
+
+COPY --from=frontend /frontend/dist ./webapp/claimclarity/dist
+
+EXPOSE 8000
+
+CMD ["python", "server_claimclarity.py"]

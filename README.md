@@ -7,7 +7,7 @@ someone's time — or, for GlacierWatch, a real ongoing disaster.
 | | Track | Pitch |
 |---|---|---|
 | **[BidWright](BIDWRIGHT.md)** | Professional Agents | Reads an RFP, checks a small business against every requirement, drafts the proposal, and only asks you to decide the things only you can decide. |
-| **[ClaimClarity](CLAIMCLARITY.md)** | Everyday Agents | Reads a health insurance denial, checks it against real ICD-10 coding rules and your plan's own terms, and drafts the appeal — or tells you honestly when it's not worth fighting. |
+| **[ClaimClarity](CLAIMCLARITY.md)** | Everyday Agents | Reads a health insurance denial, checks it against real ICD-10 coding rules and your plan's own terms, and drafts the appeal — or tells you honestly when it's not worth fighting. Also ships a FastAPI + React web UI (`server_claimclarity.py`), not just the Streamlit demo. |
 | **[GlacierWatch](GLACIERWATCH.md)** | Good Neighbor Agents | Combines published, cited Himalayan glacial-hazard assessments with live weather and seismic data to prioritize monitoring attention this week — decision support for disaster management authorities, never a prediction of an avalanche or flood. |
 
 All three share the same architectural discipline: a Strands **"agents as
