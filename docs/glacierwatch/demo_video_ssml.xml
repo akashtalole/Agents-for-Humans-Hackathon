@@ -1,0 +1,126 @@
+<speak>
+
+<!-- ============================================================ -->
+<!-- SECTION 1: HOOK + THE PROBLEM (~0:00-0:55) -->
+<!-- SCREEN: black slide, then a map of the Himalaya with a marker on the Nepal-Tibet border -->
+<!-- ============================================================ -->
+<p>
+<s>On August twenty sixth, twenty twenty six, a glacier collapsed on the Nepal-Tibet border.</s>
+<s>The debris flow that followed killed over six hundred people, with thousands still missing.</s>
+<s>It hit with enough force to register on seismographs, as if it were its own earthquake.</s>
+</p>
+
+<break time="700ms"/>
+
+<p>
+<s><emphasis level="moderate">Nobody predicted it.</emphasis></s>
+<s>Not local authorities, not the institutions with dedicated instrumentation nearby.</s>
+<s>And this wasn't a first. India has already lived through two close relatives of this same disaster: Chamoli, in twenty twenty-one, and South Lhonak Lake in Sikkim, in twenty twenty-three — a lake that had been formally flagged as dangerous four years before it finally broke, and still killed forty-two people.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- SCREEN: text overlay "56 monitored / 28,043+ catalogued" -->
+<p>
+<s>Here's the part that doesn't make headlines. India's disaster management authority actively monitors fifty-six glacial lakes.</s>
+<s>There are over twenty-eight thousand catalogued across the Indian Himalayan region alone.</s>
+<s>Nobody can predict which one fails next. But almost nobody is even watching most of them.</s>
+</p>
+
+<break time="1s"/>
+
+<!-- ============================================================ -->
+<!-- SECTION 2: WHO IT'S FOR (~0:55-1:20) -->
+<!-- SCREEN: GlacierWatch title card -->
+<!-- ============================================================ -->
+<p>
+<s>This is GlacierWatch.</s>
+<s>It's built for state disaster management authorities, and for village-level disaster committees in Himalayan districts — the people who have to decide, this week, with limited field teams and limited time, which sites deserve a closer look.</s>
+<s>It is not built to replace the glaciologists and geotechnical engineers who make the real, on-the-ground call.</s>
+</p>
+
+<break time="1s"/>
+
+<!-- ============================================================ -->
+<!-- SECTION 3: WHY IT MATTERS (~1:20-2:00) -->
+<!-- ============================================================ -->
+<p>
+<s>And here's the choice we made on purpose: GlacierWatch does not predict avalanches or glacial lake outburst floods. It never will.</s>
+<s>A tool that claimed to know when the next one hits would be dishonest — and worse, it could talk someone out of evacuating when they shouldn't be.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+<s>What we built instead is narrower, and honest: <emphasis level="moderate">triage</emphasis>.</s>
+<s>Take what's already documented and published about a hazard site. Combine it with this week's real, observed weather and seismic conditions.</s>
+<s>And tell a human, plainly, which sites deserve attention right now — and which don't.</s>
+</p>
+
+<break time="1s"/>
+
+<!-- ============================================================ -->
+<!-- SECTION 4: LIVE DEMO WALKTHROUGH (~2:00-4:15) -->
+<!-- SCREEN: Streamlit app loading, disclaimer banner visible -->
+<!-- ============================================================ -->
+<p>
+<s>Let's watch it run.</s>
+<s>This is the live app. Notice the banner at the top, before anything else loads: this is decision support, not a prediction system. That disclaimer is on every single report GlacierWatch ever produces.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: sidebar showing the reference watchlist description, click Run GlacierWatch -->
+<p>
+<s>We click <emphasis level="moderate">Run GlacierWatch</emphasis>. No file to upload, no form to fill in — it runs against a small, bundled watchlist of four real Himalayan sites, and every fact about them is sourced to a published assessment.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: activity log streaming tool calls -->
+<p>
+<s>Watch the activity log. This is a Strands agent orchestrator, and every one of these lines is a real tool call, happening live: loading the watchlist, then reaching out to Open-Meteo for today's real rainfall data, and to the U.S. Geological Survey for real recent earthquake activity near each site.</s>
+<s>Nothing here is mocked. If a fetch fails, the agent says so, instead of quietly making up a number.</s>
+</p>
+
+<break time="700ms"/>
+
+<!-- SCREEN: Weekly Watchlist tab, elevated sites -->
+<p>
+<s>Once it finishes, this is the Weekly Watchlist — the trusted report.</s>
+<s>Two of our four sites, Gepang Gath and Samudra Tapu in Himachal Pradesh, come back <emphasis level="moderate">elevated</emphasis>: both have a documented, formally assessed high-risk profile, but this week's real conditions show no acute trigger — no extreme rainfall, no significant nearby seismic activity.</s>
+<s>The other two sites are historical case studies, already drained, held at routine — used only to calibrate the tool's rainfall threshold, never implied to be building toward another failure.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Current Conditions tab -->
+<p>
+<s>And here's Current Conditions — the actual live numbers behind that judgment: today's precipitation, categorized on India's own official rainfall scale, and the nearest recent seismic events, with their distance and magnitude spelled out.</s>
+<s>Every number here is real, fetched at the moment this report ran.</s>
+</p>
+
+<break time="1s"/>
+
+<!-- ============================================================ -->
+<!-- SECTION 5: CLOSE (~4:15-4:50) -->
+<!-- ============================================================ -->
+<p>
+<s>That's GlacierWatch: published, cited hazard data, plus this week's real conditions, turned into one honest, disclaimed priority list.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+<s>What's next is scale. The watchlist today is four sites. India's monitoring list is fifty-six. The full catalogue is over twenty-eight thousand.</s>
+<s>As that data becomes available in usable form, GlacierWatch is built to grow into it — without ever growing into a promise it can't keep.</s>
+</p>
+
+<break time="500ms"/>
+
+<p>
+<s>Because the honest answer to "can you predict the next glacier disaster" is no.</s>
+<s>But "can you help someone watch the right place this week" — that one, we can actually say yes to.</s>
+</p>
+
+</speak>
