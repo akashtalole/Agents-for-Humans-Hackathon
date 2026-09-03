@@ -28,6 +28,13 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to an RFP amendment/addendum document, if one was issued (.txt/.md/.pdf/.docx)",
     )
+    run_parser.add_argument(
+        "--history-file",
+        default="bidwright_history.json",
+        help="Path to this company's persistent cross-bid history file, used to detect compliance "
+        "gaps that recur across bids (default: ./bidwright_history.json). Point every run for the "
+        "same company at the same file.",
+    )
     run_parser.add_argument("--out", default="output", help="Output directory (default: ./output)")
     run_parser.add_argument("--quiet", action="store_true", help="Suppress the live activity stream")
 
@@ -47,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         profile_path=args.profile,
         output_dir=args.out,
         amendment_path=args.amendment,
+        history_file=args.history_file,
         callback_handler=callback_handler,
     )
 

@@ -174,6 +174,60 @@ class TeamingPlan(BaseModel):
     )
 
 
+class BidHistoryGap(BaseModel):
+    """One compliance gap's compact record within a BidHistoryEntry - just
+    the requirement description and severity, not full ComplianceGap detail
+    (e.g. no `detail`, which is often instance-specific like "you carry
+    $1,000,000, need $2,000,000" and would rarely match itself run to run
+    even for the same underlying problem)."""
+
+    requirement: str
+    severity: Severity
+
+
+class BidHistoryEntry(BaseModel):
+    """One completed bid run's compact record, appended to the persistent
+    cross-bid history file (bidwright/tools/history.py) after every run's
+    compliance check. Deliberately narrow - project identity, overall
+    status, and just the gap descriptions/severities - so a small
+    business's history file stays small and easy to reason about even after
+    years of bids."""
+
+    project_title: str
+    issuing_organization: str
+    run_at: str = Field(description="ISO timestamp this run's compliance check was recorded")
+    overall_status: str = Field(description="The ComplianceReport.overall_status recorded for this run")
+    gaps: list[BidHistoryGap] = Field(default_factory=list)
+
+
+class BidHistory(BaseModel):
+    """The full cross-bid history file: every BidHistoryEntry recorded
+    across all past runs, in the order they were appended (oldest first)."""
+
+    entries: list[BidHistoryEntry] = Field(default_factory=list)
+
+
+class RecurringGapInsight(BaseModel):
+    """A compliance gap requirement description that has recurred across
+    multiple past bids, detected by exact-string match over a recent window
+    of recorded runs - see bidwright/tools/history.py:detect_recurring_gaps
+    for the exact logic. A plain frequency count over BidHistoryEntry
+    records, never an LLM judgment call."""
+
+    requirement: str = Field(description="The gap requirement description, exactly as recorded")
+    severity: Severity = Field(description="The severity of the most recent occurrence of this gap")
+    occurrences: int = Field(description="How many runs in the scanned window this gap appeared in")
+    runs_considered: int = Field(description="How many recent runs were scanned (the window size)")
+    first_seen_rfp: str = Field(
+        description="Project title and issuing organization where this gap first appeared, "
+        "within the scanned window"
+    )
+    most_recent_rfp: str = Field(
+        description="Project title and issuing organization of the most recent run where this "
+        "gap appeared"
+    )
+
+
 class ProposalDraft(BaseModel):
     cover_letter: str
     executive_summary: str

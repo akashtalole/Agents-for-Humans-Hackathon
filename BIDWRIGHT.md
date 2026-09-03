@@ -135,6 +135,57 @@ decision, same as the compliance gaps.
 it always has — this is additive, not a required step, because most RFPs
 never get amended.
 
+## Portfolio Insights: cross-bid institutional memory
+
+Small businesses that run BidWright — or just bid generally — don't bid
+once; they bid repeatedly, RFP after RFP, over years. But every run today is
+stateless: nobody notices that the same compliance gap ("insufficient
+bonding capacity," "missing a specific certification") keeps recurring
+across bid after bid, quietly costing the company wins, because nothing
+persists across runs to notice the pattern. A single bid's compliance report
+genuinely can't see that — it only has this one RFP in front of it.
+
+Right after the compliance check, BidWright records this bid's outcome
+(project identity, overall status, and each gap's requirement description +
+severity — not the full gap detail) to a small persistent JSON file, and
+scans recent history for gap requirements that have shown up on at least 2
+of the company's last 5 recorded bids. The result is written to
+`portfolio_insights.md`:
+
+- How many bids are on record and how many of the recent ones were scanned.
+- Every recurring gap: which requirement, its most recent severity, how many
+  of the recent bids it appeared on, and the first and most recent RFP it
+  showed up on.
+
+This is deterministic, pure-code pattern-matching over structured records —
+never an LLM guessing at a pattern — and it's additive: it runs on every bid
+automatically, using `bidwright_history.json` in the current directory by
+default. Point every run for the same company at the same file with
+`--history-file` if you want it somewhere else, or to keep separate history
+per company/division:
+
+```bash
+bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.json \
+  --history-file ~/bidwright/acme_landscaping_history.json --out output
+```
+
+On the very first bid BidWright ever records for a company,
+`portfolio_insights.md` says so plainly — "not enough bid history yet" — it
+is never treated as an error, and no recurrence is ever fabricated to fill
+the file. Missing or corrupted history files are treated the same way: a
+fresh start, not a crash — this run's data still gets recorded going
+forward.
+
+**Honest limitation:** recurrence detection is exact-text matching on the
+gap requirement description, not semantic. "Insufficient bonding capacity"
+and "bonding capacity too low" describe the same real problem but won't be
+counted as the same recurring gap without a normalization step this feature
+deliberately doesn't attempt — a simple, predictable rule that's upfront
+about what it misses beats a fuzzy matcher whose behavior nobody could
+reliably predict. If this turns out to matter in practice, that
+normalization step belongs in `bidwright/tools/history.py`, isolated from
+everything else.
+
 ## Architecture
 
 BidWright is a Strands **"agents as tools"** multi-agent system: an
@@ -149,6 +200,7 @@ flowchart TD
     O -->|tool call| L[load_rfp_and_profile]
     O -->|tool call| A["extract_rfp_requirements\n→ RFP Analyzer Agent"]
     O -->|tool call| C["check_company_compliance\n→ Compliance Checker Agent"]
+    O -->|tool call| H["record_bid_and_check_portfolio_trends\n(pure code, cross-run history)"]
     O -->|tool call| T["draft_teaming_plan_tool\n→ Teaming Advisor Agent"]
     O -->|tool call| R[create_submission_deadline_reminder]
     O -->|tool call| M["analyze_rfp_amendment (optional)\n→ Amendment Analyzer Agent"]
@@ -156,14 +208,18 @@ flowchart TD
 
     A -->|RFPRequirements| J[(Shared BidJob state)]
     C -->|ComplianceReport| J
+    H -->|BidHistory + RecurringGapInsight| J
     T -->|TeamingPlan| J
     M -->|AmendmentImpact| J
     P -->|ProposalDraft| J
     J --> A
     J --> C
+    J --> H
     J --> T
     J --> M
     J --> P
+
+    H <-->|append/load JSON| HF[(bidwright_history.json\ncross-run, on disk)]
 
     J --> F1[requirements.md]
     J --> F2[compliance_report.md]
@@ -172,6 +228,7 @@ flowchart TD
     J --> F5[submission_deadline.ics]
     J --> F6["amendment_impact.md (if --amendment given)"]
     J --> F7[teaming_plan.md]
+    J --> F8[portfolio_insights.md]
 
     O -->|plain-English summary| U
     F3 -->|only the blocking items| U
@@ -189,6 +246,11 @@ Design choices worth calling out:
   the model.** `decisions_needed.md` is built deterministically from the
   `ComplianceReport` in `bidwright/rendering.py`, so that guarantee doesn't
   depend on the orchestrator remembering to keep its promise.
+- **Cross-run memory is pure code, not the model's memory.** Portfolio
+  Insights persists to a JSON file and detects recurrence with plain string
+  matching in `bidwright/tools/history.py` — no LLM call is in that loop, so
+  a recurring gap is either actually there in the recorded data or it isn't,
+  never a model's fuzzy recollection of "didn't we see this before?"
 - **Model-provider agnostic.** `bidwright/config.py` picks Anthropic's API
   directly (for local/dev, an `ANTHROPIC_API_KEY`) or Amazon Bedrock
   (no key, just AWS credentials — the path AgentCore deployments use)
@@ -210,8 +272,10 @@ bidwright run --rfp examples/sample_rfp.md --profile examples/company_profile.js
 
 This streams each tool call as it happens, then prints a summary and writes
 `requirements.md`, `compliance_report.md`, `decisions_needed.md`,
-`teaming_plan.md`, `proposal_draft.md`, and `submission_deadline.ics` to
-`output/` (plus `amendment_impact.md` if `--amendment` was given).
+`portfolio_insights.md`, `teaming_plan.md`, `proposal_draft.md`, and
+`submission_deadline.ics` to `output/` (plus `amendment_impact.md` if
+`--amendment` was given), and appends this run to `bidwright_history.json`
+(override with `--history-file`).
 
 Or run the Streamlit demo:
 
@@ -235,6 +299,7 @@ bidwright/
   tools/
     documents.py             @tool read_document, save_text_file
     calendar.py               @tool create_deadline_reminder (.ics generation)
+    history.py                 Pure code: cross-bid history load/append/save + recurrence detection
   agents/
     rfp_analyzer.py           Sub-agent: RFP text -> RFPRequirements
     compliance_checker.py     Sub-agent: RFPRequirements + profile -> ComplianceReport

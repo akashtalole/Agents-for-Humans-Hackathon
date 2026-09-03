@@ -15,6 +15,7 @@ the orchestrator agent can call.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 from strands import Agent, tool
@@ -27,8 +28,12 @@ from bidwright.agents.teaming_advisor import draft_teaming_plan
 from bidwright.config import create_agent
 from bidwright.models import (
     AmendmentImpact,
+    BidHistory,
+    BidHistoryEntry,
+    BidHistoryGap,
     ComplianceReport,
     ProposalDraft,
+    RecurringGapInsight,
     RFPRequirements,
     TeamingPlan,
 )
@@ -36,12 +41,20 @@ from bidwright.rendering import (
     render_amendment_impact_md,
     render_compliance_md,
     render_decision_summary_md,
+    render_portfolio_insights_md,
     render_proposal_md,
     render_requirements_md,
     render_teaming_plan_md,
 )
 from bidwright.tools.calendar import create_deadline_reminder
 from bidwright.tools.documents import read_document, save_text_file
+from bidwright.tools.history import (
+    DEFAULT_WINDOW_SIZE,
+    append_entry,
+    detect_recurring_gaps,
+    load_history,
+    save_history,
+)
 
 ORCHESTRATOR_PROMPT = """\
 You are BidWright, an assistant that takes a small business from "here's an \
@@ -53,18 +66,26 @@ For every job, always run the full pipeline in this order:
 1. load_rfp_and_profile
 2. extract_rfp_requirements
 3. check_company_compliance
-4. draft_teaming_plan_tool
-5. create_submission_deadline_reminder
-6. analyze_rfp_amendment
-7. draft_proposal_document
+4. record_bid_and_check_portfolio_trends
+5. draft_teaming_plan_tool
+6. create_submission_deadline_reminder
+7. analyze_rfp_amendment
+8. draft_proposal_document
 
-Step 4 looks at whatever compliance gaps step 3 found and recommends where \
+Step 4 records this bid's compliance outcome to a persistent cross-bid \
+history file and checks whether any of this run's gaps have also shown up \
+on this company's recent past bids - a pattern invisible from any single \
+bid's compliance report. Always call it right after the compliance check, \
+even on the very first bid ever recorded (it reports "not enough history \
+yet" cleanly, that is not a failure).
+
+Step 5 looks at whatever compliance gaps step 3 found and recommends where \
 teaming with a subcontractor or joint-venture partner could close the ones \
 this company can't plausibly fix alone - always call it right after the \
 compliance check, even if there are zero gaps (it still reports that cleanly, \
 that is not a failure).
 
-Step 6 only matters when an amendment/addendum document was provided for \
+Step 7 only matters when an amendment/addendum document was provided for \
 this job - always call it anyway, right after the compliance check and before \
 drafting the proposal, so a changed requirement can't slip into a stale \
 proposal draft. If it reports back that no amendment is configured, that is \
@@ -98,6 +119,7 @@ class BidJob:
     profile_path: str
     output_dir: str
     amendment_path: str | None = None
+    history_file: str = "bidwright_history.json"
     rfp_text: str = ""
     profile_text: str = ""
     requirements: RFPRequirements | None = None
@@ -105,6 +127,8 @@ class BidJob:
     amendment_impact: AmendmentImpact | None = None
     teaming_plan: TeamingPlan | None = None
     proposal: ProposalDraft | None = None
+    history: BidHistory = field(default_factory=BidHistory)
+    portfolio_insights: list[RecurringGapInsight] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
 
 
@@ -167,6 +191,51 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             f"{len(job.compliance.gaps)} gap(s) found ({len(blocking)} blocking). "
             "Full report saved to compliance_report.md, human-facing summary saved to "
             "decisions_needed.md."
+        )
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
+    def record_bid_and_check_portfolio_trends() -> str:
+        """Append this run's compliance outcome (RFP identity, overall
+        status, and each gap's requirement description + severity - not
+        full gap detail) to the persistent cross-bid history file, then
+        scan recent history for gap requirements that have recurred across
+        multiple of this company's past bids - a pattern invisible from any
+        single bid's compliance report. Always writes portfolio_insights.md,
+        even on the very first run ever recorded (a graceful "not enough
+        bid history yet" message, not an error). Must be called after
+        check_company_compliance."""
+        if job.compliance is None:
+            return "Error: call check_company_compliance first."
+
+        entry = BidHistoryEntry(
+            project_title=job.requirements.project_title,
+            issuing_organization=job.requirements.issuing_organization,
+            run_at=datetime.now(timezone.utc).isoformat(),
+            overall_status=job.compliance.overall_status,
+            gaps=[
+                BidHistoryGap(requirement=gap.requirement, severity=gap.severity)
+                for gap in job.compliance.gaps
+            ],
+        )
+
+        prior_history = load_history(job.history_file)
+        job.history = append_entry(prior_history, entry)
+        save_history(job.history_file, job.history)
+        job.portfolio_insights = detect_recurring_gaps(job.history)
+        save_text_file(
+            str(out_dir / "portfolio_insights.md"),
+            render_portfolio_insights_md(
+                job.portfolio_insights, len(job.history.entries), DEFAULT_WINDOW_SIZE
+            ),
+        )
+
+        msg = (
+            f"Recorded this bid to portfolio history ({job.history_file}); "
+            f"{len(job.history.entries)} bid(s) on record. "
+            f"{len(job.portfolio_insights)} recurring gap(s) detected across recent bids. "
+            "See portfolio_insights.md."
         )
         job.activity_log.append(msg)
         return msg
@@ -283,6 +352,7 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             load_rfp_and_profile,
             extract_rfp_requirements,
             check_company_compliance,
+            record_bid_and_check_portfolio_trends,
             draft_teaming_plan_tool,
             create_submission_deadline_reminder,
             analyze_rfp_amendment,

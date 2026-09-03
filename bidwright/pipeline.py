@@ -24,6 +24,7 @@ def run_bid_job(
     profile_path: str,
     output_dir: str,
     amendment_path: str | None = None,
+    history_file: str = "bidwright_history.json",
     callback_handler=None,
 ) -> BidJobResult:
     """Run the full BidWright pipeline for one RFP and return the result.
@@ -33,6 +34,13 @@ def run_bid_job(
     requirements and flag anything that needs a decision. Omit it (the
     default) for the common case where no amendment exists yet.
 
+    Pass `history_file` to point at this company's persistent cross-bid
+    history file (default: `bidwright_history.json` in the current working
+    directory) - every run appends its compliance outcome there and checks
+    it for compliance gaps that keep recurring across bids. Point every run
+    for the same company at the same file so recurrence can actually be
+    detected across runs.
+
     Pass `callback_handler` (see Strands' Agent callback_handler parameter) to
     stream tool-call/thinking events live, e.g. for a UI activity log.
     """
@@ -41,6 +49,7 @@ def run_bid_job(
         profile_path=profile_path,
         output_dir=output_dir,
         amendment_path=amendment_path,
+        history_file=history_file,
     )
     orchestrator = build_orchestrator(job, callback_handler=callback_handler)
     result = orchestrator(TASK_PROMPT)

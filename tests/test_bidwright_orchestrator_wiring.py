@@ -84,12 +84,18 @@ def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypa
         orchestrator_module, "draft_proposal", lambda req, profile, compliance: _fake_proposal()
     )
 
-    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    job = BidJob(
+        rfp_path=RFP_PATH,
+        profile_path=PROFILE_PATH,
+        output_dir=str(tmp_path),
+        history_file=str(tmp_path / "history.json"),
+    )
     orchestrator = build_orchestrator(job)
 
     assert _tool_text(orchestrator.tool.load_rfp_and_profile()).startswith("Loaded RFP")
     assert "Test Project" in _tool_text(orchestrator.tool.extract_rfp_requirements())
     assert "gaps_found" in _tool_text(orchestrator.tool.check_company_compliance())
+    assert "bid(s) on record" in _tool_text(orchestrator.tool.record_bid_and_check_portfolio_trends())
     assert "Calendar reminder saved" in _tool_text(orchestrator.tool.create_submission_deadline_reminder())
     assert "proposal_draft.md" in _tool_text(orchestrator.tool.draft_proposal_document())
 
@@ -97,6 +103,7 @@ def test_full_pipeline_wiring_writes_all_expected_files(tmp_path: Path, monkeypa
         "requirements.md",
         "compliance_report.md",
         "decisions_needed.md",
+        "portfolio_insights.md",
         "proposal_draft.md",
         "submission_deadline.ics",
     ):
