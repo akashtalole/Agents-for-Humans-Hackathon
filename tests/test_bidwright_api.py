@@ -8,6 +8,7 @@ the rest of this repo.
 from __future__ import annotations
 
 import io
+import threading
 import time
 from pathlib import Path
 
@@ -162,10 +163,36 @@ def test_create_run_with_uploads(client, monkeypatch):
 # --- GET /api/runs/{job_id} status transitions --------------------------
 
 
-def test_run_status_transitions_to_completed_success(client, monkeypatch):
+def test_run_status_transitions_to_awaiting_approval(client, monkeypatch):
     monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
     job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
     body = _wait_for_completion(client, job_id)
+    # The orchestrator always drafts proposal_draft.md, so the web UI always
+    # routes through a human-in-the-loop approval gate before the run is
+    # "completed" - see bidwright/api.py's `_run_job`.
+    assert body["status"] == "awaiting_approval"
+    assert body["error"] is None
+    assert body["status_badge"] == {
+        "level": "warning",
+        "message": "Awaiting your approval before this proposal is final.",
+    }
+    assert body["draft_text"] == "# Proposal Draft"
+    assert body["summary_text"] == "Orchestrator's own free-text summary."
+    names = [f["name"] for f in body["files"]]
+    assert names == ["decisions_needed.md", "requirements.md", "compliance_report.md", "proposal_draft.md"]
+    # decisions_needed.md carries the .ics download only when the file exists;
+    # our fake run_bid_job didn't write one.
+    assert "download" not in body["files"][0]
+
+
+def test_run_status_transitions_to_completed_success_after_approval(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={})
+    assert resp.status_code == 200
+    body = resp.json()
     assert body["status"] == "completed"
     assert body["error"] is None
     assert body["status_badge"] == {
@@ -179,11 +206,21 @@ def test_run_status_transitions_to_completed_success(client, monkeypatch):
     # our fake run_bid_job didn't write one.
     assert "download" not in body["files"][0]
 
+    # Confirm the status persists on subsequent GETs, not just in the
+    # approve response.
+    body2 = client.get(f"/api/runs/{job_id}").json()
+    assert body2["status"] == "completed"
+
 
 def test_run_status_blocking_gap_gives_error_badge(client, monkeypatch):
     monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_with_blocking_gap))
     job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
     body = _wait_for_completion(client, job_id)
+    assert body["status"] == "awaiting_approval"
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={})
+    body = resp.json()
+    assert body["status"] == "completed"
     assert body["status_badge"]["level"] == "error"
     assert "1 blocking gap(s)" in body["status_badge"]["message"]
 
@@ -198,12 +235,207 @@ def test_run_status_none_compliance_gives_warning_badge(client, monkeypatch):
 
     monkeypatch.setattr(api_module, "run_bid_job", _fake_run_bid_job)
     job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
-    body = _wait_for_completion(client, job_id)
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={})
+    body = resp.json()
+    assert body["status"] == "completed"
     assert body["status_badge"] == {
         "level": "warning",
         "message": "Run did not complete compliance checking.",
     }
     assert body["files"] == []
+
+
+# --- POST /api/runs/{job_id}/approve and /reject ------------------------
+
+
+def test_approve_with_edited_text_overwrites_draft_and_completes(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={"edited_text": "# Edited Proposal\nBetter now."})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "completed"
+    assert body["draft_text"] == "# Edited Proposal\nBetter now."
+
+    # The edit is persisted to disk, not just echoed back.
+    resp2 = client.get(f"/api/runs/{job_id}/files/proposal_draft.md")
+    assert resp2.text == "# Edited Proposal\nBetter now."
+
+
+def test_approve_without_edited_text_keeps_original_draft(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/approve", json={})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "completed"
+    assert body["draft_text"] == "# Proposal Draft"
+
+
+def test_reject_sets_status_and_reason(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/reject", json={"reason": "Pricing section is wrong."})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "rejected"
+    assert body["reject_reason"] == "Pricing section is wrong."
+    # The draft stays available for reference even though it's rejected.
+    assert body["draft_text"] == "# Proposal Draft"
+
+    # Persists on a fresh GET too.
+    body2 = client.get(f"/api/runs/{job_id}").json()
+    assert body2["status"] == "rejected"
+    assert body2["reject_reason"] == "Pricing section is wrong."
+
+
+def test_approve_on_already_awaiting_job_twice_second_call_errors(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    first = client.post(f"/api/runs/{job_id}/approve", json={})
+    assert first.status_code == 200
+    # Job is now "completed" - approving again is not a no-op, it's an error.
+    second = client.post(f"/api/runs/{job_id}/approve", json={})
+    assert second.status_code == 409
+
+
+def test_approve_on_running_job_returns_error_not_crash(client, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_run_bid_job(rfp_path, profile_path, output_dir, amendment_path=None, history_file="bidwright_history.json", callback_handler=None):
+        started.set()
+        release.wait(timeout=5)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        job = BidJob(rfp_path=rfp_path, profile_path=profile_path, output_dir=output_dir)
+        job.compliance = _fake_compliance_ready()
+        return BidJobResult(job=job, summary_text="done")
+
+    monkeypatch.setattr(api_module, "run_bid_job", _blocking_run_bid_job)
+    try:
+        job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+        assert started.wait(timeout=5)
+
+        approve_resp = client.post(f"/api/runs/{job_id}/approve", json={})
+        assert approve_resp.status_code == 409
+
+        reject_resp = client.post(f"/api/runs/{job_id}/reject", json={})
+        assert reject_resp.status_code == 409
+
+        # Job is still tracked and eventually finishes cleanly once released.
+        assert client.get(f"/api/runs/{job_id}").json()["status"] == "running"
+    finally:
+        release.set()
+        _wait_for_completion(client, job_id)
+
+
+def test_approve_reject_unknown_job_404(client):
+    assert client.post("/api/runs/does-not-exist/approve", json={}).status_code == 404
+    assert client.post("/api/runs/does-not-exist/reject", json={}).status_code == 404
+
+
+# --- /api/runs/{job_id}/chat ---------------------------------------------
+
+
+def test_chat_on_running_job_returns_400(client, monkeypatch):
+    started = threading.Event()
+    release = threading.Event()
+
+    def _blocking_run_bid_job(rfp_path, profile_path, output_dir, amendment_path=None, history_file="bidwright_history.json", callback_handler=None):
+        started.set()
+        release.wait(timeout=5)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        job = BidJob(rfp_path=rfp_path, profile_path=profile_path, output_dir=output_dir)
+        job.compliance = _fake_compliance_ready()
+        return BidJobResult(job=job, summary_text="done")
+
+    monkeypatch.setattr(api_module, "run_bid_job", _blocking_run_bid_job)
+    try:
+        job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+        assert started.wait(timeout=5)
+
+        resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "hello?"})
+        assert resp.status_code == 400
+    finally:
+        release.set()
+        _wait_for_completion(client, job_id)
+
+
+def test_chat_on_failed_job_returns_400(client, monkeypatch):
+    def _raising_run_bid_job(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(api_module, "run_bid_job", _raising_run_bid_job)
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "hello?"})
+    assert resp.status_code == 400
+
+
+def test_chat_on_completed_job_returns_reply_and_appends_history(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+
+    calls: list[tuple[str, str]] = []
+
+    class _FakeAgent:
+        def __init__(self, system_prompt: str) -> None:
+            self._system_prompt = system_prompt
+
+        def __call__(self, message: str) -> str:
+            calls.append((self._system_prompt, message))
+            return "The submission deadline is 2026-09-30T17:00."
+
+    def _fake_create_agent(system_prompt: str = "", **kwargs):
+        return _FakeAgent(system_prompt)
+
+    monkeypatch.setattr(api_module, "create_agent", _fake_create_agent)
+
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+    client.post(f"/api/runs/{job_id}/approve", json={})
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "what's the submission deadline?"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["reply"] == "The submission deadline is 2026-09-30T17:00."
+    # The chat agent is grounded only in this job's own generated files - the
+    # RFP/profile paths never appear in the system prompt.
+    assert calls and "what's the submission deadline?" == calls[0][1]
+    assert "Proposal Draft" in calls[0][0]
+
+    history = client.get(f"/api/runs/{job_id}/chat").json()["messages"]
+    assert history == [
+        {"role": "user", "content": "what's the submission deadline?"},
+        {"role": "assistant", "content": "The submission deadline is 2026-09-30T17:00."},
+    ]
+
+
+def test_chat_requires_nonempty_message(client, monkeypatch):
+    monkeypatch.setattr(api_module, "run_bid_job", _make_run_bid_job(_fake_compliance_ready))
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    _wait_for_completion(client, job_id)
+    client.post(f"/api/runs/{job_id}/approve", json={})
+
+    resp = client.post(f"/api/runs/{job_id}/chat", json={"message": "   "})
+    assert resp.status_code == 400
+
+
+def test_chat_unknown_job_404(client):
+    assert client.post("/api/runs/does-not-exist/chat", json={"message": "hi"}).status_code == 404
+    assert client.get("/api/runs/does-not-exist/chat").status_code == 404
 
 
 def test_run_status_failed_job_reports_error(client, monkeypatch):

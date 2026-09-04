@@ -16,11 +16,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import bidwright.orchestrator as orchestrator_module
+import bidwright.tools.guardrail as guardrail_module
 from bidwright.models import (
     ChecklistItem,
     ComplianceGap,
     ComplianceReport,
+    GuardrailFinding,
+    GuardrailResult,
     ProposalDraft,
+    ReviewResult,
     RFPRequirements,
     Severity,
 )
@@ -165,6 +169,98 @@ def test_deadline_reminder_before_extract_returns_error(tmp_path: Path):
     job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
     orchestrator = build_orchestrator(job)
     result = orchestrator.tool.create_submission_deadline_reminder()
+    assert "Error" in _tool_text(result)
+
+
+def test_review_proposal_document_capped_at_one_revision_pass(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_rfp", lambda text: _fake_requirements())
+    monkeypatch.setattr(
+        orchestrator_module, "check_compliance", lambda req, profile: _fake_compliance_with_blocking_gap()
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "draft_proposal", lambda req, profile, compliance: _fake_proposal()
+    )
+
+    call_count = {"n": 0}
+
+    def _fake_review_proposal(proposal, compliance, profile_text):
+        call_count["n"] += 1
+        return ReviewResult(approved=False, issues=["Fabricated issue for the test."], summary="Needs work.")
+
+    monkeypatch.setattr(orchestrator_module, "review_proposal", _fake_review_proposal)
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    orchestrator.tool.load_rfp_and_profile()
+    orchestrator.tool.extract_rfp_requirements()
+    orchestrator.tool.check_company_compliance()
+    orchestrator.tool.draft_proposal_document()
+
+    first = _tool_text(orchestrator.tool.review_proposal_document())
+    assert "1 issue(s)" in first
+    assert call_count["n"] == 1
+    assert job.review_revision_count == 1
+
+    # Calling it again (simulating the orchestrator revising and re-reviewing,
+    # or just calling it twice) must NOT invoke the mocked reviewer a second
+    # time - the cap is enforced in plain code, not just prompted.
+    second = _tool_text(orchestrator.tool.review_proposal_document())
+    assert "Maximum review-revision pass" in second
+    assert call_count["n"] == 1
+    assert job.review_revision_count == 1
+
+    assert (tmp_path / "proposal_review.md").exists()
+
+
+def test_review_proposal_document_before_draft_returns_error(tmp_path: Path):
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    result = orchestrator.tool.review_proposal_document()
+    assert "Error" in _tool_text(result)
+    assert "draft_proposal_document" in _tool_text(result)
+
+
+def test_check_proposal_guardrail_writes_file(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_rfp", lambda text: _fake_requirements())
+    monkeypatch.setattr(
+        orchestrator_module, "check_compliance", lambda req, profile: _fake_compliance_with_blocking_gap()
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "draft_proposal", lambda req, profile, compliance: _fake_proposal()
+    )
+
+    def _fake_agent_guardrail_check(proposal_text):
+        return GuardrailResult(
+            passed=False,
+            findings=[
+                GuardrailFinding(
+                    rule="guaranteed_outcome_claim",
+                    excerpt="guaranteed to win",
+                    explanation="Test finding.",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(guardrail_module, "agent_guardrail_check", _fake_agent_guardrail_check)
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    orchestrator.tool.load_rfp_and_profile()
+    orchestrator.tool.extract_rfp_requirements()
+    orchestrator.tool.check_company_compliance()
+    orchestrator.tool.draft_proposal_document()
+
+    result_text = _tool_text(orchestrator.tool.check_proposal_guardrail())
+    assert "1 finding(s)" in result_text
+    assert (tmp_path / "proposal_guardrail.md").exists()
+    guardrail_md = (tmp_path / "proposal_guardrail.md").read_text()
+    assert "guaranteed_outcome_claim" in guardrail_md
+
+
+def test_check_proposal_guardrail_before_draft_returns_error(tmp_path: Path):
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    result = orchestrator.tool.check_proposal_guardrail()
     assert "Error" in _tool_text(result)
 
 

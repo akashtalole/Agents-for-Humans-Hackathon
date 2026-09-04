@@ -23,6 +23,7 @@ from strands import Agent, tool
 from bidwright.agents.amendment_analyzer import analyze_amendment
 from bidwright.agents.compliance_checker import check_compliance
 from bidwright.agents.proposal_drafter import draft_proposal
+from bidwright.agents.proposal_reviewer import review_proposal
 from bidwright.agents.rfp_analyzer import analyze_rfp
 from bidwright.agents.teaming_advisor import draft_teaming_plan
 from bidwright.config import create_agent
@@ -32,8 +33,10 @@ from bidwright.models import (
     BidHistoryEntry,
     BidHistoryGap,
     ComplianceReport,
+    GuardrailResult,
     ProposalDraft,
     RecurringGapInsight,
+    ReviewResult,
     RFPRequirements,
     TeamingPlan,
 )
@@ -41,13 +44,16 @@ from bidwright.rendering import (
     render_amendment_impact_md,
     render_compliance_md,
     render_decision_summary_md,
+    render_guardrail_md,
     render_portfolio_insights_md,
     render_proposal_md,
     render_requirements_md,
+    render_review_md,
     render_teaming_plan_md,
 )
 from bidwright.tools.calendar import create_deadline_reminder
 from bidwright.tools.documents import read_document, save_text_file
+from bidwright.tools.guardrail import run_guardrail_check
 from bidwright.tools.history import (
     DEFAULT_WINDOW_SIZE,
     append_entry,
@@ -71,6 +77,8 @@ For every job, always run the full pipeline in this order:
 6. create_submission_deadline_reminder
 7. analyze_rfp_amendment
 8. draft_proposal_document
+9. review_proposal_document
+10. check_proposal_guardrail
 
 Step 4 records this bid's compliance outcome to a persistent cross-bid \
 history file and checks whether any of this run's gaps have also shown up \
@@ -91,6 +99,27 @@ drafting the proposal, so a changed requirement can't slip into a stale \
 proposal draft. If it reports back that no amendment is configured, that is \
 not a failure - just move on to draft_proposal_document.
 
+Step 9 is a skeptical second reviewer that compares the drafted proposal \
+against the compliance report and company profile, checking only for \
+concrete, checkable problems - a false compliance claim, an invented \
+certification/capability, or a silently omitted blocking gap - never prose \
+style. Always call it right after draft_proposal_document. If it reports \
+issues, revise the draft by calling draft_proposal_document again with that \
+feedback in mind, then call review_proposal_document once more to confirm \
+the fix - but this revision loop is capped at exactly one pass in code, not \
+just by this instruction: calling review_proposal_document a second time \
+after a revision has already happened returns immediately without \
+re-reviewing, so you cannot loop forever chasing a perfect review even if \
+you wanted to. Treat "maximum review-revision pass already used" as your \
+signal to stop revising and move on to step 10 regardless of the earlier \
+verdict.
+
+Step 10 runs a guardrail check on the CURRENT proposal draft for language \
+that overstates compliance or promises a contract outcome the business \
+can't control. Always call it after review_proposal_document, whether or \
+not that review found issues - it is a separate, independent check, not a \
+retry of step 9.
+
 Then write a final answer for a busy small business owner who has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual gap \
 text - so do NOT try to recall or restate specific gap details, dollar \
@@ -104,6 +133,10 @@ answer must include, in this order:
 blocking gaps and recommended actions - do not enumerate them yourself.
 - Where to find the full requirements, compliance report, and proposal draft \
 files.
+- A pointer to proposal_review.md (count of issues only, never enumerate \
+them).
+- A pointer to proposal_guardrail.md (count of findings only, never \
+enumerate them).
 
 Never claim a gap is resolved unless the compliance report says so. Never \
 skip a step. If a tool reports an error because a previous step wasn't run, \
@@ -127,6 +160,9 @@ class BidJob:
     amendment_impact: AmendmentImpact | None = None
     teaming_plan: TeamingPlan | None = None
     proposal: ProposalDraft | None = None
+    review: ReviewResult | None = None
+    review_revision_count: int = 0
+    guardrail: GuardrailResult | None = None
     history: BidHistory = field(default_factory=BidHistory)
     portfolio_insights: list[RecurringGapInsight] = field(default_factory=list)
     activity_log: list[str] = field(default_factory=list)
@@ -331,6 +367,58 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
         return msg
 
     @tool
+    def review_proposal_document() -> str:
+        """Review the drafted proposal against the compliance findings for
+        accuracy and honesty - does it claim something is compliant that
+        isn't, invent a capability not in the company profile, or omit an
+        open blocking gap. Call after draft_proposal_document. If it finds
+        real issues, revise by calling draft_proposal_document again with
+        this feedback in mind, then call this tool again - but this is
+        capped at ONE revision pass; calling it again after a revision
+        already happened returns immediately without re-reviewing, so the
+        loop cannot run away."""
+        if job.proposal is None:
+            return "Error: call draft_proposal_document first."
+        if job.review_revision_count >= 1:
+            msg = "Maximum review-revision pass (1) already used; proceeding without a further review."
+            job.activity_log.append(msg)
+            return msg
+        job.review = review_proposal(job.proposal, job.compliance, job.profile_text)
+        save_text_file(str(out_dir / "proposal_review.md"), render_review_md(job.review))
+        if not job.review.approved:
+            job.review_revision_count += 1
+            msg = (
+                f"Review found {len(job.review.issues)} issue(s) - revise proposal_draft.md by "
+                "calling draft_proposal_document again incorporating this feedback, then call "
+                "review_proposal_document once more. Issues saved to proposal_review.md."
+            )
+        else:
+            msg = "Review passed with no issues. See proposal_review.md."
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
+    def check_proposal_guardrail() -> str:
+        """Run a guardrail check on the CURRENT proposal_draft.md content for
+        language that overstates compliance (when this run has open blocking
+        gaps) or promises a contract outcome the business can't control.
+        Must be called after review_proposal_document, whether or not that
+        review found issues - it is a separate, independent safety check."""
+        if job.proposal is None:
+            return "Error: call draft_proposal_document first."
+        proposal_path = out_dir / "proposal_draft.md"
+        proposal_text = proposal_path.read_text() if proposal_path.exists() else render_proposal_md(job.proposal)
+        blocking = [g for g in job.compliance.gaps if g.severity.value == "blocking"] if job.compliance else []
+        job.guardrail = run_guardrail_check(proposal_text, has_blocking_gaps=bool(blocking))
+        save_text_file(str(out_dir / "proposal_guardrail.md"), render_guardrail_md(job.guardrail))
+        msg = (
+            f"Guardrail check complete. {len(job.guardrail.findings)} finding(s). "
+            "See proposal_guardrail.md."
+        )
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
     def create_submission_deadline_reminder() -> str:
         """Create a calendar (.ics) reminder file for the RFP submission
         deadline, with extra reminders 3 and 1 days before, so the deadline
@@ -357,6 +445,8 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             create_submission_deadline_reminder,
             analyze_rfp_amendment,
             draft_proposal_document,
+            review_proposal_document,
+            check_proposal_guardrail,
         ],
     )
     # Always pass callback_handler explicitly, even when it's None: Strands'

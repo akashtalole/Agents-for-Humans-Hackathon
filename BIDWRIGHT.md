@@ -326,6 +326,72 @@ framework object, nothing thread-affine to forget to re-attach), and the
 event loop via `run_in_executor`. Simpler than the Streamlit workaround, and
 there's no framework session object in the picture at all to get wrong.
 
+### Independent review, guardrail check, human approval, and chat
+
+Four additions on top of the base web UI above, all specific to this front
+end (the CLI and Streamlit demo are unchanged, except for the reviewer and
+guardrail steps below, which run everywhere since they're pipeline-level,
+not UI-level):
+
+**Critic/reviewer agent, with a code-enforced revision cap.** After
+`draft_proposal_document`, a new tool `review_proposal_document` calls a
+dedicated sub-agent (`bidwright/agents/proposal_reviewer.py`) that compares
+the drafted proposal text against the actual `ComplianceReport` and company
+profile, looking only for concrete, checkable problems — does the proposal
+narrative claim something is compliant when the compliance report shows a
+gap, does it invent a capability the profile doesn't support. If it finds
+real issues, the orchestrator is instructed to revise by calling
+`draft_proposal_document` again — but this is capped at exactly one
+revision pass, and that cap is enforced by a plain counter on `BidJob`
+(`review_revision_count`), not just a prompt instruction, so it cannot loop
+away regardless of what the model decides to do. The live-verified example
+below is a good illustration of why this matters: the reviewer caught the
+drafted cover letter and executive summary flatly claiming "we carry all
+required insurance coverages" while the compliance report showed General
+Liability as a blocking gap — a real, plausible mistake a drafting agent can
+make, caught before a human ever sees it.
+
+**Enforced guardrail check.** After review, `check_proposal_guardrail` runs
+`bidwright/tools/guardrail.py`'s `run_guardrail_check`: a deterministic,
+offline-testable regex scan (`scan_overclaim_patterns`) for phrases like
+"fully compliant" or "meets all requirements" when blocking gaps still
+exist, plus unconditional phrases like "guaranteed to win" or "guaranteed
+award" that should never appear regardless of compliance status — combined
+with a second, agent-based semantic check for subtler overreach the regex
+would miss. Findings are written to `proposal_guardrail.md` and surfaced
+prominently in the web UI's approval panel.
+
+**Human-in-the-loop approval gate (web UI only).** A successful run no
+longer lands on `"completed"` directly — it lands on `"awaiting_approval"`,
+with the drafted proposal shown in an editable textarea alongside the
+reviewer's verdict and any guardrail findings. `POST /api/runs/{id}/approve`
+(optionally with edited text, which overwrites `proposal_draft.md`) moves it
+to `"completed"`; `POST /api/runs/{id}/reject` (with an optional reason)
+moves it to `"rejected"`. When guardrail findings exist, the frontend
+requires an explicit acknowledgment checkbox before the Approve button
+enables — a strong nudge, not a hard block, since the human stays the final
+authority. This turns what `decisions_needed.md` already told the reader
+("you decide this") into an actual UI action instead of a suggestion left on
+the page.
+
+**Grounded follow-up chat.** `POST/GET /api/runs/{id}/chat` runs a small,
+fresh, tool-less Strands agent whose only context is the concatenated
+content of that job's own generated `.md` files (capped at roughly 40,000
+characters, dropping the review/guardrail files first if needed) — it
+answers questions like "what's the submission deadline?" but is instructed
+to say so honestly rather than guess if the answer isn't in those files.
+Chat history is kept in memory per job, same lifetime as the rest of the
+in-memory job store.
+
+**Verified live**, not just with the offline test suite: a real run against
+the real Anthropic API and the bundled example produced 4 genuine reviewer
+issues (the insurance-overstatement problem described above), 0 guardrail
+findings after the resulting revision, and a correct chat answer to "what's
+the submission deadline?" (September 30, 2026, 5:00 PM) — screenshots in
+`docs/bidwright/screenshots/webui_04_approval.png` (the approval panel with
+real reviewer issues visible),`webui_05_completed_after_approval.png`, and
+`webui_06_chat.png`.
+
 ### Running it locally
 
 ```bash

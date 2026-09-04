@@ -37,11 +37,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from bidwright.config import model_status
+from bidwright.config import create_agent, model_status
 from bidwright.pipeline import BidJobResult, run_bid_job
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
@@ -79,6 +79,8 @@ def _new_job_entry() -> dict[str, Any]:
         "result": None,
         "output_dir": None,
         "events": queue.Queue(),
+        "reject_reason": None,
+        "chat_history": [],
     }
 
 
@@ -109,7 +111,11 @@ def _run_job(
             callback_handler=callback,
         )
         with _lock:
-            entry["status"] = "completed"
+            # The orchestrator always drafts proposal_draft.md, so there is
+            # always something for a human to approve before it's final -
+            # the web UI's human-in-the-loop gate (CLI/Streamlit are
+            # unaffected; they never look at this status field).
+            entry["status"] = "awaiting_approval"
             entry["result"] = result
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as job status
         with _lock:
@@ -119,7 +125,11 @@ def _run_job(
         events.put({"done": True})
 
 
-def _status_badge(result: BidJobResult | None) -> dict[str, str] | None:
+def _status_badge(status: str, result: BidJobResult | None) -> dict[str, str] | None:
+    if status == "awaiting_approval":
+        return {"level": "warning", "message": "Awaiting your approval before this proposal is final."}
+    if status == "rejected":
+        return {"level": "error", "message": "Rejected — not approved for submission."}
     if result is None:
         return None
     job = result.job
@@ -207,9 +217,32 @@ def _get_job(job_id: str) -> dict[str, Any]:
     return entry
 
 
-@app.get("/api/runs/{job_id}")
-def get_run(job_id: str) -> dict[str, Any]:
-    entry = _get_job(job_id)
+def _draft_text(output_dir: Path) -> str | None:
+    draft_path = output_dir / "proposal_draft.md"
+    return draft_path.read_text() if draft_path.is_file() else None
+
+
+def _review_payload(result: BidJobResult | None) -> dict[str, Any] | None:
+    if result is None or result.job.review is None:
+        return None
+    review = result.job.review
+    return {"approved": review.approved, "issues": list(review.issues)}
+
+
+def _guardrail_payload(result: BidJobResult | None) -> dict[str, Any] | None:
+    if result is None or result.job.guardrail is None:
+        return None
+    guardrail = result.job.guardrail
+    return {
+        "passed": guardrail.passed,
+        "findings": [
+            {"rule": f.rule, "excerpt": f.excerpt, "explanation": f.explanation}
+            for f in guardrail.findings
+        ],
+    }
+
+
+def _run_payload(job_id: str, entry: dict[str, Any]) -> dict[str, Any]:
     status = entry["status"]
     result: BidJobResult | None = entry["result"]
 
@@ -220,13 +253,128 @@ def get_run(job_id: str) -> dict[str, Any]:
         "status_badge": None,
         "files": None,
         "summary_text": None,
+        "draft_text": None,
+        "review": None,
+        "guardrail": None,
+        "reject_reason": entry.get("reject_reason"),
     }
     if status != "running":
-        payload["status_badge"] = _status_badge(result)
+        payload["status_badge"] = _status_badge(status, result)
+        payload["draft_text"] = _draft_text(Path(entry["output_dir"]))
+        payload["review"] = _review_payload(result)
+        payload["guardrail"] = _guardrail_payload(result)
         if result is not None:
             payload["files"] = _files_payload(Path(entry["output_dir"]))
             payload["summary_text"] = result.summary_text
     return payload
+
+
+@app.get("/api/runs/{job_id}")
+def get_run(job_id: str) -> dict[str, Any]:
+    entry = _get_job(job_id)
+    return _run_payload(job_id, entry)
+
+
+@app.post("/api/runs/{job_id}/approve")
+def approve_run(job_id: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    entry = _get_job(job_id)
+    with _lock:
+        if entry["status"] != "awaiting_approval":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Job is '{entry['status']}', not 'awaiting_approval' - nothing to approve.",
+            )
+        edited_text = body.get("edited_text")
+        if edited_text:
+            (Path(entry["output_dir"]) / "proposal_draft.md").write_text(edited_text)
+        entry["status"] = "completed"
+    return _run_payload(job_id, entry)
+
+
+@app.post("/api/runs/{job_id}/reject")
+def reject_run(job_id: str, body: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+    entry = _get_job(job_id)
+    with _lock:
+        if entry["status"] != "awaiting_approval":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Job is '{entry['status']}', not 'awaiting_approval' - nothing to reject.",
+            )
+        entry["status"] = "rejected"
+        entry["reject_reason"] = body.get("reason")
+    return _run_payload(job_id, entry)
+
+
+# Chat is grounded ONLY in this job's own generated .md files, capped at
+# ~40,000 characters of context so a run with a large RFP/profile can't blow
+# past the model's context window - if it would exceed the cap, the least-
+# important files (the reviewer/guardrail notes) are dropped first, keeping
+# the core proposal/decision files.
+_CHAT_CONTEXT_CHAR_LIMIT = 40_000
+_CHAT_LOW_PRIORITY_FILES = ["proposal_guardrail.md", "proposal_review.md"]
+
+_CHAT_SYSTEM_PROMPT = (
+    "You answer questions about this specific BidWright RFP bid using ONLY the "
+    "documents provided below. If the answer isn't in them, say so honestly "
+    "instead of guessing. Answer in 2-4 sentences unless more detail is "
+    "clearly needed."
+)
+
+
+def _chat_context(output_dir: Path) -> str:
+    md_files = {p.name: p.read_text() for p in sorted(output_dir.glob("*.md"))}
+    total = sum(len(text) for text in md_files.values())
+    # Drop the least-important files first (in _CHAT_LOW_PRIORITY_FILES order)
+    # until the total fits, rather than truncating individual files, since a
+    # half-truncated compliance report is worse than an absent one.
+    for name in _CHAT_LOW_PRIORITY_FILES:
+        if total <= _CHAT_CONTEXT_CHAR_LIMIT:
+            break
+        if name in md_files:
+            total -= len(md_files.pop(name))
+    parts = [f"## {name}\n\n{text}" for name, text in md_files.items()]
+    context = "\n\n".join(parts)
+    if len(context) > _CHAT_CONTEXT_CHAR_LIMIT:
+        context = context[:_CHAT_CONTEXT_CHAR_LIMIT] + "\n\n_[truncated]_"
+    return context
+
+
+def _run_chat_turn(output_dir: Path, message: str) -> str:
+    """Blocking Strands call - always run via the executor, never directly
+    on the asyncio event loop."""
+    context = _chat_context(output_dir)
+    agent = create_agent(system_prompt=f"{_CHAT_SYSTEM_PROMPT}\n\n{context}")
+    result = agent(message)
+    return str(result)
+
+
+@app.post("/api/runs/{job_id}/chat")
+async def chat_with_run(job_id: str, body: dict[str, Any] = Body(...)) -> dict[str, str]:
+    entry = _get_job(job_id)
+    if entry["status"] in ("running", "failed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job is '{entry['status']}' - nothing to chat about yet.",
+        )
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required.")
+
+    output_dir = Path(entry["output_dir"])
+    loop = asyncio.get_event_loop()
+    reply = await loop.run_in_executor(_executor, _run_chat_turn, output_dir, message)
+
+    with _lock:
+        entry["chat_history"].append({"role": "user", "content": message})
+        entry["chat_history"].append({"role": "assistant", "content": reply})
+
+    return {"reply": reply}
+
+
+@app.get("/api/runs/{job_id}/chat")
+def get_chat_history(job_id: str) -> dict[str, Any]:
+    entry = _get_job(job_id)
+    return {"messages": list(entry["chat_history"])}
 
 
 @app.get("/api/runs/{job_id}/events")
