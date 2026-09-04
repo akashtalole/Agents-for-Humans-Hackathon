@@ -14,6 +14,7 @@ from glacierwatch.models import (
     InspectionSchedule,
     PriorityLevel,
     ReviewResult,
+    RiskCrossCheckItem,
     SiteTrend,
     TrendClassification,
     WatchlistReport,
@@ -189,6 +190,49 @@ def render_community_alerts_index_md(bulletins: list[CommunityAlertBulletin]) ->
         )
     lines.append("")
     return "\n".join(lines)
+
+
+def render_risk_cross_check_md(items: list[RiskCrossCheckItem]) -> str:
+    """Every assessed site's priority level, compared between the first
+    assessment and an independent second audit that never saw the first
+    assessor's brief - see glacierwatch/agents/risk_auditor.py. Because
+    understating risk is worse than overstating it here, the MORE CAUTIOUS
+    of the two ratings is always adopted, never silently the first
+    assessor's alone - this file always shows both, plus which one won and
+    why, even when they agree."""
+    disagreements = [i for i in items if not i.agrees]
+    verdict = (
+        "✅ Both independent assessments agree on every site."
+        if not disagreements
+        else f"⚠️ {len(disagreements)} site(s) received a different rating from the independent "
+        "auditor — the more cautious rating was adopted for each."
+    )
+
+    def item_block(item: RiskCrossCheckItem) -> str:
+        agree_mark = "✅ Agree" if item.agrees else "⚠️ Disagree"
+        return (
+            f"### {item.site_name} — {agree_mark}\n"
+            f"- **First assessment:** {item.first_priority}\n"
+            f"- **Independent auditor:** {item.second_priority}\n"
+            f"- **Adopted rating:** {item.adopted_priority}\n"
+            f"- {item.note}\n"
+        )
+
+    items_md = "\n".join(item_block(i) for i in items) if items else "_No sites assessed yet._"
+
+    return f"""# Independent Risk Cross-Check
+
+{DISCLAIMER}
+
+A second, independent auditor agent re-assessed every site's priority level \
+from scratch, using the same documented site profile and current \
+conditions, but with no knowledge of the first assessment's conclusions.
+
+**Verdict:** {verdict}
+
+## Sites
+{items_md}
+"""
 
 
 def render_trend_report_md(trends: list[SiteTrend]) -> str:

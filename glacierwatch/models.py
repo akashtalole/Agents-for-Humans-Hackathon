@@ -201,6 +201,37 @@ class InspectionStop(BaseModel):
     longitude: float
 
 
+class RiskCrossCheckItem(BaseModel):
+    """One site's priority level, compared between the first assessment and
+    an independent second audit that never saw the first assessor's brief -
+    matched by site_id, a stable field both assessments receive from the
+    same WatchSite. Because understating risk here is worse than
+    overstating it, `adopted_priority` is always the MORE CAUTIOUS of the
+    two, never silently the first assessor's alone."""
+
+    site_id: str
+    site_name: str
+    first_priority: str
+    second_priority: str
+    adopted_priority: str
+    agrees: bool
+    note: str = Field(description="Plain-language note on what happened, e.g. whether the more "
+                       "cautious rating was adopted and why")
+
+
+class RiskCrossCheck(BaseModel):
+    """The result of comparing two independently-produced SiteRiskBriefs for
+    the same site - a genuine second opinion, not a revision of the first
+    assessor's own work. Built entirely in plain code (matching by site_id,
+    comparing priority_level, adopting the more cautious of the two), never
+    an LLM judgment, since both inputs are already structured - see
+    orchestrator.py's cross_verify_site_risk."""
+
+    items: list[RiskCrossCheckItem] = Field(default_factory=list)
+    disagreement_count: int
+    summary: str
+
+
 class ReviewResult(BaseModel):
     """A skeptical second pass over one drafted CommunityAlertBulletin,
     comparing it against the SiteRiskBrief it was drafted from (see
