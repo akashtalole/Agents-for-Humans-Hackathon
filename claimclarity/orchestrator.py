@@ -17,14 +17,17 @@ from strands import Agent, tool
 from claimclarity.agents.appeal_drafter import draft_appeal
 from claimclarity.agents.appeal_reviewer import review_appeal
 from claimclarity.agents.claim_analyzer import analyze_claim
+from claimclarity.agents.denial_auditor import audit_denial, compare_denial_findings
 from claimclarity.agents.denial_investigator import investigate_denial
 from claimclarity.agents.escalation_advisor import prepare_escalation
 from claimclarity.agents.evidence_request_builder import build_physician_evidence_request
 from claimclarity.config import create_agent
 from claimclarity.models import (
     AppealPackage,
+    Classification,
     ClaimHistory,
     ClaimRecord,
+    DenialCrossCheck,
     DenialFindings,
     EscalationPackage,
     GuardrailResult,
@@ -35,6 +38,7 @@ from claimclarity.models import (
 from claimclarity.rendering import (
     render_appeal_md,
     render_claim_summary_md,
+    render_cross_check_md,
     render_decision_summary_md,
     render_escalation_md,
     render_findings_md,
@@ -65,12 +69,23 @@ For every case, always run the full pipeline in this order:
 2. extract_claim_details
 3. create_appeal_deadline_reminder
 4. investigate_denial
-5. record_case_and_check_insurer_patterns
-6. build_physician_evidence_request
-7. draft_appeal_package
-8. review_appeal_package
-9. check_appeal_guardrail
-10. prepare_external_review_escalation
+5. cross_verify_denial_findings
+6. record_case_and_check_insurer_patterns
+7. build_physician_evidence_request
+8. draft_appeal_package
+9. review_appeal_package
+10. check_appeal_guardrail
+11. prepare_external_review_escalation
+
+Step 5 gets a second, INDEPENDENT investigation of every denied line item \
+from a separate auditor agent that has not seen step 4's conclusions - not \
+a revision of step 4's work, a genuinely separate one, using the same real \
+ICD-10 lookup tools independently. Any disagreement between the two is \
+never silently resolved in either direction: it forces that line item to \
+needs_review so a human looks at it directly, and marks it worth_appealing \
+so it's never silently dropped from the list. Always call it right after \
+investigate_denial, even when you expect the two to agree - the whole \
+point is that you don't actually know that until you check.
 
 After draft_appeal_package, always call review_appeal_package: a second, \
 independent pass that fact-checks the drafted appeal against the denial \
@@ -103,6 +118,9 @@ only, e.g. "2 of 3 items look worth appealing").
 - A direct pointer to decisions_needed.md as the place to read exactly which \
 items are worth appealing and why, and which aren't - do not enumerate them \
 yourself.
+- One line noting how many line items an independent second investigation \
+disagreed on (state the count only, from cross_verify_denial_findings's \
+result - never invent which ones) and a pointer to denial_cross_check.md.
 - One line noting that insurer_pattern_report.md shows whether this same \
 insurer has a recorded pattern of denying similar claims on the same basis \
 before - a materially stronger fact pattern for an appeal or regulatory \
@@ -140,6 +158,7 @@ class ClaimCase:
     documents_text: str = ""
     claim: ClaimRecord | None = None
     findings: DenialFindings | None = None
+    cross_check: DenialCrossCheck | None = None
     appeal: AppealPackage | None = None
     escalation: EscalationPackage | None = None
     physician_evidence_request: PhysicianEvidenceRequest | None = None
@@ -223,6 +242,50 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             f"Investigation complete. {len(worth_appealing)} of {len(case.findings.findings)} "
             "line item(s) look worth appealing. Full findings saved to denial_findings.md, "
             "human-facing summary saved to decisions_needed.md."
+        )
+        case.activity_log.append(msg)
+        return msg
+
+    @tool
+    def cross_verify_denial_findings() -> str:
+        """Get a second, independent investigation of every denied line item
+        from a separate auditor agent that has NOT seen the first
+        investigation's conclusions (it uses the same real ICD-10 lookup
+        tools, independently), then compare the two by procedure_code - a
+        plain-code diff, not an LLM judgment, since both findings lists are
+        already structured. A genuine disagreement is never silently
+        resolved in favor of either investigation: it forces that line
+        item's classification to needs_review (and worth_appealing=True, so
+        a disputed item is never silently dropped from the appeal-worthy
+        list) regardless of what either investigation concluded alone.
+        Every line item's comparison is written to denial_cross_check.md.
+        Must be called after investigate_denial_tool."""
+        if case.claim is None or case.findings is None:
+            return "Error: call investigate_denial_tool first."
+        audit = audit_denial(case.claim)
+        case.cross_check = compare_denial_findings(case.findings, audit)
+
+        if case.cross_check.disagreement_count:
+            disputed_codes = {item.procedure_code for item in case.cross_check.items if not item.agrees}
+            for finding in case.findings.findings:
+                if finding.procedure_code in disputed_codes and finding.classification != Classification.NEEDS_REVIEW:
+                    finding.classification = Classification.NEEDS_REVIEW
+                    finding.worth_appealing = True
+            save_text_file(str(out_dir / "denial_findings.md"), render_findings_md(case.findings))
+            save_text_file(
+                str(out_dir / "decisions_needed.md"),
+                render_decision_summary_md(case.claim, case.findings, case.escalation, case.physician_evidence_request),
+            )
+
+        save_text_file(str(out_dir / "denial_cross_check.md"), render_cross_check_md(case.cross_check))
+        msg = (
+            f"Independent audit complete: {case.cross_check.disagreement_count} of "
+            f"{len(case.cross_check.items)} line item(s) disagreed"
+            + (
+                " - forced to needs_review, see denial_cross_check.md."
+                if case.cross_check.disagreement_count
+                else ". See denial_cross_check.md."
+            )
         )
         case.activity_log.append(msg)
         return msg
@@ -413,6 +476,7 @@ def build_orchestrator(case: ClaimCase, callback_handler=None) -> Agent:
             extract_claim_details,
             create_appeal_deadline_reminder_tool,
             investigate_denial_tool,
+            cross_verify_denial_findings,
             record_case_and_check_insurer_patterns,
             build_physician_evidence_request_tool,
             draft_appeal_package,

@@ -26,6 +26,7 @@ from glacierwatch.agents.alert_drafter import draft_community_alert
 from glacierwatch.agents.alert_reviewer import review_alert
 from glacierwatch.agents.report_drafter import draft_watchlist_report
 from glacierwatch.agents.risk_assessor import assess_site
+from glacierwatch.agents.risk_auditor import audit_site, compare_site_risk
 from glacierwatch.config import create_agent
 from glacierwatch.models import (
     CommunityAlertBulletin,
@@ -35,6 +36,7 @@ from glacierwatch.models import (
     InspectionSchedule,
     PriorityLevel,
     ReviewResult,
+    RiskCrossCheckItem,
     RunHistory,
     SiteRiskBrief,
     SiteTrend,
@@ -50,6 +52,7 @@ from glacierwatch.rendering import (
     render_guardrail_md,
     render_inspection_schedule_md,
     render_review_md,
+    render_risk_cross_check_md,
     render_site_profile_md,
     render_trend_report_md,
     render_watchlist_report_md,
@@ -77,13 +80,25 @@ prioritize attention - nothing more.
 For every run, always execute the full pipeline in this order:
 1. load_watchlist
 2. For every active_watch site returned: fetch_current_conditions(site_id)
-3. For every site (active_watch AND historical_case_study): assess_site_risk(site_id)
+3. For every site (active_watch AND historical_case_study): assess_site_risk(site_id), \
+then immediately cross_verify_site_risk(site_id) for that same site before moving to the next one
 4. record_run_history_and_detect_trends
 5. draft_watchlist_report
 6. draft_community_alerts
 7. review_community_alerts
 8. check_alerts_guardrail
 9. build_field_inspection_schedule
+
+cross_verify_site_risk gets a second, INDEPENDENT priority-level opinion \
+from a separate auditor agent that has not seen assess_site_risk's brief \
+for that site - not a revision of that assessment, a genuinely separate \
+one. Because understating risk here is worse than overstating it, any \
+disagreement is never silently resolved in favor of the first assessment: \
+the MORE CAUTIOUS of the two ratings is always adopted, and every \
+comparison is written to risk_cross_check.md whether or not the two agree. \
+Always call it right after assess_site_risk for each site, even when you \
+expect them to agree - the whole point is that you don't actually know \
+that until you check.
 
 Step 7 is a skeptical second reviewer that compares every drafted community \
 alert bulletin against the SiteRiskBrief it was drafted from, checking for a \
@@ -122,6 +137,9 @@ final answer must include, in this order:
 (state the count only, e.g. "1 of 4 sites at priority level").
 - A direct pointer to watchlist_report.md as the place to read exactly \
 which sites and why - do not enumerate them yourself.
+- One line stating how many sites the independent audit disagreed with \
+(state the count only, from cross_verify_site_risk's results across all \
+sites - never invent which ones) and a pointer to risk_cross_check.md.
 - One line stating how many sites show a rising trend across recent runs \
 (state the count only, from the record_run_history_and_detect_trends tool \
 result, e.g. "1 site shows a rising trend") and a pointer to \
@@ -158,6 +176,7 @@ class WatchRun:
     sites: list[WatchSite] = field(default_factory=list)
     conditions_by_site: dict[str, CurrentConditions] = field(default_factory=dict)
     briefs: list[SiteRiskBrief] = field(default_factory=list)
+    risk_cross_checks: dict[str, RiskCrossCheckItem] = field(default_factory=dict)
     report: WatchlistReport | None = None
     alerts: list[CommunityAlertBulletin] = field(default_factory=list)
     history: RunHistory = field(default_factory=RunHistory)
@@ -253,6 +272,60 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
         brief = assess_site(site, conditions)
         run.briefs = [b for b in run.briefs if b.site_id != site.id] + [brief]
         msg = f"Assessed {site.name}: priority_level={brief.priority_level.value}."
+        run.activity_log.append(msg)
+        return msg
+
+    @tool
+    def cross_verify_site_risk(site_id: str) -> str:
+        """Get a second, independent priority-level assessment for this
+        site from a separate auditor agent that has NOT seen the first
+        assessment's brief, then compare the two. Because understating risk
+        is worse than overstating it here, whenever the two disagree the
+        MORE CAUTIOUS (higher) of the two priority levels is always
+        adopted - never the lower one - and every comparison, agreement or
+        not, is written to risk_cross_check.md for transparency. Must be
+        called right after assess_site_risk for this same site_id."""
+        site = _find_site(site_id)
+        if site is None:
+            return f"Error: unknown site_id '{site_id}'. Call load_watchlist first."
+        brief = next((b for b in run.briefs if b.site_id == site_id), None)
+        if brief is None:
+            return f"Error: call assess_site_risk for site_id '{site_id}' first."
+
+        conditions = run.conditions_by_site.get(
+            site.id,
+            CurrentConditions(
+                site_id=site.id,
+                as_of=datetime.now(timezone.utc).isoformat(),
+                weather_source_note="not fetched (historical case study site)",
+                seismic_source_note="not fetched (historical case study site)",
+            ),
+        )
+        audit_brief = audit_site(site, conditions)
+        cross_check_item = compare_site_risk(brief, audit_brief)
+        run.risk_cross_checks[site_id] = cross_check_item
+
+        if not cross_check_item.agrees and cross_check_item.adopted_priority != brief.priority_level.value:
+            # The independent auditor rated this site HIGHER than the first
+            # assessment - adopt its (more cautious) brief in full, not just
+            # its priority_level, so the rationale/active_triggers/
+            # recommended_action a human reads are consistent with the
+            # rating actually being used downstream (draft_watchlist_report,
+            # draft_community_alerts).
+            run.briefs = [b for b in run.briefs if b.site_id != site_id] + [audit_brief]
+
+        save_text_file(
+            str(out_dir / "risk_cross_check.md"), render_risk_cross_check_md(list(run.risk_cross_checks.values()))
+        )
+        msg = (
+            f"Independent audit for {site.name}: first={cross_check_item.first_priority}, "
+            f"auditor={cross_check_item.second_priority}, adopted={cross_check_item.adopted_priority}"
+            + (
+                " (escalated to the auditor's higher rating)."
+                if not cross_check_item.agrees and cross_check_item.adopted_priority != cross_check_item.first_priority
+                else "."
+            )
+        )
         run.activity_log.append(msg)
         return msg
 
@@ -474,6 +547,7 @@ def build_orchestrator(run: WatchRun, callback_handler=None) -> Agent:
             load_watchlist,
             fetch_current_conditions,
             assess_site_risk,
+            cross_verify_site_risk,
             record_run_history_and_detect_trends,
             draft_watchlist_report_tool,
             draft_community_alerts,

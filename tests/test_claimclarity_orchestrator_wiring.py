@@ -482,3 +482,94 @@ def test_custom_callback_handler_is_used(tmp_path: Path):
     case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
     orchestrator = build_orchestrator(case, callback_handler=handler)
     assert orchestrator.callback_handler is handler
+
+
+def test_cross_verify_denial_findings_forces_disagreement_to_needs_review(tmp_path: Path, monkeypatch):
+    """The whole point of the independent audit: a genuine disagreement
+    between the first investigation and the second, independent auditor
+    must never be silently resolved in favor of either one - it forces the
+    disputed line item to needs_review (and worth_appealing=True, so a
+    disputed item is never silently dropped) regardless of what either
+    investigation concluded."""
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+
+    def _fake_audit(claim):
+        # Auditor disagrees on 97124: first investigation said valid_denial,
+        # auditor says billing_error.
+        return DenialFindings(
+            overall_recommendation="Independent audit.",
+            findings=[
+                LineItemFinding(
+                    procedure_code="97110",
+                    classification=Classification.BILLING_ERROR,
+                    evidence="Auditor agrees.",
+                    recommendation="Appeal.",
+                    worth_appealing=True,
+                ),
+                LineItemFinding(
+                    procedure_code="97124",
+                    classification=Classification.BILLING_ERROR,
+                    evidence="Auditor disagrees with the plan-exclusion read.",
+                    recommendation="Appeal - auditor thinks this is a coding issue, not an exclusion.",
+                    worth_appealing=True,
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(orchestrator_module, "audit_denial", _fake_audit)
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+
+    # Before the cross-check, 97124 has its original valid_denial/not-worth-appealing status.
+    findings_by_code = {f.procedure_code: f for f in case.findings.findings}
+    assert findings_by_code["97124"].classification == Classification.VALID_DENIAL
+    assert findings_by_code["97124"].worth_appealing is False
+
+    result = _tool_text(orchestrator.tool.cross_verify_denial_findings())
+    assert "1 of 2 line item(s) disagreed" in result
+    assert "forced to needs_review" in result
+
+    # After the cross-check, the disputed item is forced to needs_review and
+    # worth_appealing=True - never silently trusting either investigation
+    # alone, and never silently dropped from the appeal-worthy list.
+    findings_by_code = {f.procedure_code: f for f in case.findings.findings}
+    assert findings_by_code["97124"].classification == Classification.NEEDS_REVIEW
+    assert findings_by_code["97124"].worth_appealing is True
+    # The agreed-upon item is untouched.
+    assert findings_by_code["97110"].classification == Classification.BILLING_ERROR
+
+    assert case.cross_check is not None
+    assert case.cross_check.disagreement_count == 1
+    assert (tmp_path / "denial_cross_check.md").exists()
+    assert "needs_review" in (tmp_path / "denial_findings.md").read_text().lower()
+
+
+def test_cross_verify_denial_findings_no_disagreement_leaves_findings_untouched(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_claim", lambda text: _fake_claim())
+    monkeypatch.setattr(orchestrator_module, "investigate_denial", lambda claim: _fake_mixed_findings())
+    monkeypatch.setattr(orchestrator_module, "audit_denial", lambda claim: _fake_mixed_findings())
+
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    orchestrator.tool.load_claim_documents()
+    orchestrator.tool.extract_claim_details()
+    orchestrator.tool.investigate_denial_tool()
+    result = _tool_text(orchestrator.tool.cross_verify_denial_findings())
+
+    assert "0 of 2 line item(s) disagreed" in result
+    findings_by_code = {f.procedure_code: f for f in case.findings.findings}
+    assert findings_by_code["97124"].classification == Classification.VALID_DENIAL
+    assert (tmp_path / "denial_cross_check.md").exists()
+
+
+def test_cross_verify_denial_findings_before_investigation_returns_error(tmp_path: Path):
+    case = ClaimCase(documents_paths=DOCUMENT_PATHS, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(case)
+    result = orchestrator.tool.cross_verify_denial_findings()
+    assert "Error" in _tool_text(result)
+    assert "investigate_denial_tool" in _tool_text(result)

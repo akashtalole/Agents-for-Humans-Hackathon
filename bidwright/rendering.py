@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from bidwright.models import (
     AmendmentImpact,
+    ComplianceCrossCheck,
     ComplianceReport,
     GuardrailResult,
     ProposalDraft,
@@ -134,6 +135,50 @@ def render_review_md(review: ReviewResult) -> str:
 
 ## Issues
 {issues_md}
+"""
+
+
+def render_cross_check_md(cross_check: ComplianceCrossCheck) -> str:
+    """Result of comparing the first compliance check against an independent
+    second audit that never saw the first check's conclusions - see
+    bidwright/agents/compliance_auditor.py. A disagreement here is never
+    silently resolved; orchestrator.py's cross_verify_compliance forces any
+    disputed requirement to needs_review regardless of which agent was right."""
+    headline = (
+        "✅ NO DISAGREEMENTS — the independent audit reached the same conclusions"
+        if not cross_check.disagreements
+        else f"⚠️ {len(cross_check.disagreements)} DISAGREEMENT(S) FOUND — forced to needs_review"
+    )
+
+    def disagreement_block(d) -> str:
+        return (
+            f"### {d.requirement}\n"
+            f"- **First reviewer:** {d.first_assessment}\n"
+            f"- **Independent auditor:** {d.second_assessment}\n"
+            f"- **Why they disagree:** {d.explanation}\n"
+        )
+
+    disagreements_md = (
+        "\n".join(disagreement_block(d) for d in cross_check.disagreements)
+        if cross_check.disagreements
+        else "No disagreements found."
+    )
+
+    return f"""# Independent Compliance Cross-Check
+
+A second, independent auditor agent re-assessed this bid's compliance from
+scratch, using the same RFP requirements and company profile but with no
+knowledge of the first reviewer's conclusions.
+
+**Verdict:** {headline}
+
+**{cross_check.agreement_count} requirement(s) agree between both reviewers.**
+
+## Disagreements
+{disagreements_md}
+
+## Summary
+{cross_check.summary}
 """
 
 

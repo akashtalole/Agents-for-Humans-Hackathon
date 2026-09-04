@@ -69,6 +69,10 @@ def _fake_assess_site(site, conditions):
     )
 
 
+def _fake_audit_site_agrees(site, conditions):
+    return _fake_assess_site(site, conditions)
+
+
 def _fake_draft_report(briefs):
     priority_count = sum(1 for b in briefs if b.priority_level == PriorityLevel.PRIORITY)
     return WatchlistReport(briefs=briefs, overall_summary=f"{priority_count} site(s) at priority level.")
@@ -591,3 +595,86 @@ def test_check_alerts_guardrail_writes_file_when_alerts_exist(tmp_path: Path, mo
     guardrail_md = (tmp_path / "alerts_guardrail.md").read_text()
     assert "prediction_language" in guardrail_md
     assert run.guardrails["gepang-gath"].passed is False
+
+
+def test_cross_verify_site_risk_agreement_leaves_brief_untouched(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "assess_site", _fake_assess_site)
+    monkeypatch.setattr(orchestrator_module, "audit_site", _fake_audit_site_agrees)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    site = next(s for s in run.sites if s.status == "active_watch")
+    run.conditions_by_site[site.id] = CurrentConditions(
+        site_id=site.id,
+        as_of="2026-09-03T00:00:00Z",
+        heavy_rainfall_flag=False,
+        weather_source_note="test",
+        seismic_source_note="test",
+    )
+    orchestrator.tool.assess_site_risk(site_id=site.id)
+    result = _tool_text(orchestrator.tool.cross_verify_site_risk(site_id=site.id))
+
+    assert "adopted=" in result
+    assert run.risk_cross_checks[site.id].agrees is True
+    assert (tmp_path / "risk_cross_check.md").exists()
+    # Same object identity concern isn't the point - just confirm the brief's
+    # priority level is unchanged since both assessments agreed.
+    assert next(b for b in run.briefs if b.site_id == site.id).priority_level == PriorityLevel.ELEVATED
+
+
+def test_cross_verify_site_risk_escalates_to_more_cautious_rating(tmp_path: Path, monkeypatch):
+    """The whole point of this feature: when the independent auditor rates a
+    site HIGHER than the first assessment, that more cautious rating is
+    adopted - the brief in run.briefs is replaced, not just logged - so
+    every downstream step (the watchlist report, community alerts) sees the
+    escalated priority level too."""
+    monkeypatch.setattr(orchestrator_module, "assess_site", _fake_assess_site)
+
+    def _fake_audit_escalates(site, conditions):
+        return SiteRiskBrief(
+            site_id=site.id,
+            site_name=site.name,
+            priority_level=PriorityLevel.PRIORITY,
+            rationale="Auditor found an active trigger the first pass missed.",
+            active_triggers=["auditor-found trigger"],
+            recommended_action="Prioritize immediate field inspection.",
+        )
+
+    monkeypatch.setattr(orchestrator_module, "audit_site", _fake_audit_escalates)
+
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    site = next(s for s in run.sites if s.status == "active_watch")
+    run.conditions_by_site[site.id] = CurrentConditions(
+        site_id=site.id,
+        as_of="2026-09-03T00:00:00Z",
+        heavy_rainfall_flag=False,
+        weather_source_note="test",
+        seismic_source_note="test",
+    )
+    orchestrator.tool.assess_site_risk(site_id=site.id)
+    assert next(b for b in run.briefs if b.site_id == site.id).priority_level == PriorityLevel.ELEVATED
+
+    result = _tool_text(orchestrator.tool.cross_verify_site_risk(site_id=site.id))
+    assert "escalated to the auditor's higher rating" in result
+
+    escalated_brief = next(b for b in run.briefs if b.site_id == site.id)
+    assert escalated_brief.priority_level == PriorityLevel.PRIORITY
+    assert escalated_brief.rationale == "Auditor found an active trigger the first pass missed."
+    assert run.risk_cross_checks[site.id].agrees is False
+    assert run.risk_cross_checks[site.id].adopted_priority == "priority"
+
+    cross_check_md = (tmp_path / "risk_cross_check.md").read_text()
+    assert "Disagree" in cross_check_md
+
+
+def test_cross_verify_site_risk_before_assess_returns_error(tmp_path: Path):
+    run = WatchRun(output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(run, callback_handler=None)
+    orchestrator.tool.load_watchlist()
+    site = next(s for s in run.sites if s.status == "active_watch")
+    result = orchestrator.tool.cross_verify_site_risk(site_id=site.id)
+    assert "Error" in _tool_text(result)
+    assert "assess_site_risk" in _tool_text(result)

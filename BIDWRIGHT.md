@@ -38,7 +38,10 @@ Given an RFP document and a company capability profile, BidWright:
 3. **Checks compliance**: for every requirement, decides `met`, `gap`, or
    `needs_review`, with a severity (`blocking` vs `warning`) and a concrete
    recommendation for closing each gap. It never claims something is met
-   unless the company profile actually backs it up.
+   unless the company profile actually backs it up. Immediately followed by
+   an **independent second opinion** from a separate auditor agent — see
+   [Independent Compliance Cross-Check](#independent-compliance-cross-check)
+   below.
 4. **Creates a calendar reminder** (`.ics`) for the submission deadline, with
    automatic 3-day and 1-day advance reminders.
 5. **Drafts the proposal**: cover letter, executive summary, technical
@@ -52,6 +55,18 @@ Given an RFP document and a company capability profile, BidWright:
 Try it against the included example (a municipal landscaping RFP with a
 deliberately underinsured example company, so the compliance check has
 something real to catch) — see **Quickstart** below.
+
+## Independent Compliance Cross-Check
+
+`compliance_checker.py`'s verdict is the one judgment call this pipeline makes about eligibility, and a single LLM call - however carefully prompted - is still a single opinion. Right after `check_company_compliance`, `cross_verify_compliance` gets a second, genuinely **independent** opinion from a separate auditor agent (`bidwright/agents/compliance_auditor.py`): the same structured RFP requirements and the same company profile, but the auditor never sees the first check's conclusions, and its system prompt is deliberately more skeptical - told to actively look for reasons a requirement might not actually be met even where an easier first read would assume it is.
+
+**A genuine disagreement between the two is never silently resolved in favor of either agent - it forces that requirement to `needs_review` in the real compliance report, regardless of which agent was right**, so a human looks at it directly rather than trusting whichever agent happened to run first. Comparing the two structured reports - unlike GlacierWatch's priority-level cross-check, which is exact plain code because both sides share a fixed enum - genuinely needs a third LLM call here, since two independently-drafted `ComplianceGap.requirement` strings describing "the same" requirement won't always match byte-for-byte; that comparison agent is explicitly instructed to copy the disputed requirement's text verbatim from the first report so the escalation can match it programmatically, with a case-insensitive substring fallback if the copy isn't exact.
+
+**Live testing surfaced a real design gap here, since fixed:** when the independent auditor flagged a requirement the first check had missed *entirely* - not even mentioned in `met_requirements` - there was nothing in `compliance_report.md` to escalate to `needs_review`, so the disagreement showed up in `compliance_cross_check.md` but never reached the report a human actually reads. Fixed by appending a brand-new `ComplianceGap` (defaulting to blocking severity) whenever a disagreement doesn't match any existing gap, rather than only ever flipping the status of one that already exists. A real live run against the bundled example found exactly this case - the independent audit flagged a separate state business license requirement, plus several document-compilation and submission-process items, that the first check's narrower read had never raised at all.
+
+Every comparison, agreement or not, is written to `compliance_cross_check.md`, and is surfaced as its own tab in the web UI (labeled "Independent Audit") alongside the other generated files.
+
+**Honest limitation:** this adds two more model calls per run (the independent audit itself, plus the comparison agent), and in practice the two independent checks usually agree on most requirements - the RFP's own structured requirements are specific enough that two careful reads tend to converge. The value is in catching the requirements they *don't* agree on, especially ones the first pass missed outright, rather than in constant disagreement.
 
 ## Teaming partner gap-fill advisor
 
