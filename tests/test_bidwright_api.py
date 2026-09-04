@@ -546,3 +546,31 @@ def test_get_run_file_rejects_path_traversal(client, monkeypatch, filename):
     # Never leak file content from outside the job's own output_dir.
     assert resp.status_code in (400, 404)
     assert "root:" not in resp.text
+
+
+def test_run_files_include_compliance_cross_check_when_present(client, monkeypatch):
+    monkeypatch.setattr(
+        api_module,
+        "run_bid_job",
+        _make_run_bid_job(
+            _fake_compliance_ready,
+            output_files={
+                "decisions_needed.md": "# Decisions Needed\nReady to submit.",
+                "requirements.md": "# Requirements",
+                "compliance_report.md": "# Compliance Report",
+                "compliance_cross_check.md": "# Independent Compliance Cross-Check",
+                "proposal_draft.md": "# Proposal Draft",
+            },
+        ),
+    )
+    job_id = client.post("/api/runs", data={"use_example": "true"}).json()["job_id"]
+    body = _wait_for_completion(client, job_id)
+    names = [f["name"] for f in body["files"]]
+    assert names == [
+        "decisions_needed.md",
+        "requirements.md",
+        "compliance_report.md",
+        "compliance_cross_check.md",
+        "proposal_draft.md",
+    ]
+    assert body["files"][3]["label"] == "Independent Audit"

@@ -240,6 +240,30 @@ class ReviewResult(BaseModel):
     summary: str
 
 
+class ComplianceDisagreement(BaseModel):
+    """One requirement where the first compliance check and the independent
+    second audit reached different conclusions - always surfaced to a human,
+    never silently resolved in favor of either agent."""
+
+    requirement: str = Field(
+        description="The requirement text, copied EXACTLY (verbatim) as it appears in the "
+        "first report's gaps or met_requirements list, so it can be matched programmatically"
+    )
+    first_assessment: str = Field(description="What the first compliance check concluded")
+    second_assessment: str = Field(description="What the independent audit concluded")
+    explanation: str = Field(description="Why the two assessments disagree, in plain language")
+
+
+class ComplianceCrossCheck(BaseModel):
+    """The result of comparing two independently-produced compliance reports
+    for the same RFP and company - a genuine second opinion, not a revision
+    of the first agent's own work."""
+
+    agreement_count: int = Field(description="Number of requirements both reports substantively agree on")
+    disagreements: list[ComplianceDisagreement] = Field(default_factory=list)
+    summary: str
+
+
 class GuardrailFinding(BaseModel):
     """One concrete, checkable problem found in the drafted proposal text by
     `bidwright/tools/guardrail.py` - either a deterministic pattern match or

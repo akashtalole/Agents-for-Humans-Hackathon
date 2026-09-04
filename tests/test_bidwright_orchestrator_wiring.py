@@ -19,6 +19,8 @@ import bidwright.orchestrator as orchestrator_module
 import bidwright.tools.guardrail as guardrail_module
 from bidwright.models import (
     ChecklistItem,
+    ComplianceCrossCheck,
+    ComplianceDisagreement,
     ComplianceGap,
     ComplianceReport,
     GuardrailFinding,
@@ -285,3 +287,153 @@ def test_custom_callback_handler_is_used(tmp_path: Path):
     job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
     orchestrator = build_orchestrator(job, callback_handler=handler)
     assert orchestrator.callback_handler is handler
+
+
+def test_cross_verify_compliance_forces_disagreement_to_needs_review(tmp_path: Path, monkeypatch):
+    """The whole point of the independent audit: a genuine disagreement
+    between the first check and the second, independent auditor must never
+    be silently resolved in favor of either one - it forces the disputed
+    requirement to needs_review regardless of what either agent concluded,
+    and both reports are surfaced in compliance_cross_check.md."""
+    monkeypatch.setattr(orchestrator_module, "analyze_rfp", lambda text: _fake_requirements())
+    monkeypatch.setattr(
+        orchestrator_module, "check_compliance", lambda req, profile: _fake_compliance_with_blocking_gap()
+    )
+
+    def _fake_audit(req, profile):
+        return ComplianceReport(
+            overall_status="ready",
+            met_requirements=["General liability minimum $2,000,000"],
+            gaps=[],
+        )
+
+    def _fake_compare(first, second):
+        return ComplianceCrossCheck(
+            agreement_count=0,
+            disagreements=[
+                ComplianceDisagreement(
+                    requirement="General liability minimum $2,000,000",
+                    first_assessment="gap (blocking)",
+                    second_assessment="met",
+                    explanation="The auditor read the profile's coverage figure differently.",
+                )
+            ],
+            summary="One disagreement over the general liability requirement.",
+        )
+
+    monkeypatch.setattr(orchestrator_module, "audit_compliance", _fake_audit)
+    monkeypatch.setattr(orchestrator_module, "compare_compliance_reports", _fake_compare)
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    orchestrator.tool.load_rfp_and_profile()
+    orchestrator.tool.extract_rfp_requirements()
+    orchestrator.tool.check_company_compliance()
+
+    # Before the cross-check, the gap has its original "gap" status.
+    assert job.compliance.gaps[0].status == "gap"
+
+    result = _tool_text(orchestrator.tool.cross_verify_compliance())
+    assert "1 disagreement(s) found" in result
+    assert "forced to needs_review" in result
+
+    # After the cross-check, the disputed requirement is forced to
+    # needs_review - never silently trusting either agent alone.
+    assert job.compliance.gaps[0].status == "needs_review"
+    assert job.cross_check is not None
+    assert len(job.cross_check.disagreements) == 1
+    assert (tmp_path / "compliance_cross_check.md").exists()
+    # decisions_needed.md and compliance_report.md must be re-rendered to
+    # reflect the escalated status, not left stale from before the audit.
+    assert "needs_review" in (tmp_path / "compliance_report.md").read_text().lower()
+
+
+def test_cross_verify_compliance_no_disagreement_leaves_status_untouched(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(orchestrator_module, "analyze_rfp", lambda text: _fake_requirements())
+    monkeypatch.setattr(
+        orchestrator_module, "check_compliance", lambda req, profile: _fake_compliance_with_blocking_gap()
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "audit_compliance", lambda req, profile: _fake_compliance_with_blocking_gap()
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "compare_compliance_reports",
+        lambda first, second: ComplianceCrossCheck(
+            agreement_count=2, disagreements=[], summary="Both reviewers agree."
+        ),
+    )
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    orchestrator.tool.load_rfp_and_profile()
+    orchestrator.tool.extract_rfp_requirements()
+    orchestrator.tool.check_company_compliance()
+    result = _tool_text(orchestrator.tool.cross_verify_compliance())
+
+    assert "0 disagreement(s) found" in result
+    assert job.compliance.gaps[0].status == "gap"  # untouched, no disagreement to force
+    assert (tmp_path / "compliance_cross_check.md").exists()
+
+
+def test_cross_verify_compliance_before_check_returns_error(tmp_path: Path):
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    result = orchestrator.tool.cross_verify_compliance()
+    assert "Error" in _tool_text(result)
+    assert "check_company_compliance" in _tool_text(result)
+
+
+def test_cross_verify_compliance_appends_new_gap_when_auditor_finds_something_first_check_missed(
+    tmp_path: Path, monkeypatch
+):
+    """Real bug found via live testing: when the independent auditor flags a
+    requirement the first check never mentioned at all (not in gaps, not in
+    met_requirements), there was nothing to flip to needs_review - the
+    disagreement showed up in compliance_cross_check.md but
+    compliance_report.md/decisions_needed.md never gained the new concern.
+    Fixed by appending a new blocking ComplianceGap when no existing gap
+    matches the disagreement's requirement text."""
+    monkeypatch.setattr(orchestrator_module, "analyze_rfp", lambda text: _fake_requirements())
+    monkeypatch.setattr(orchestrator_module, "check_compliance", lambda req, profile: _fake_compliance_ready())
+
+    def _fake_audit(req, profile):
+        return ComplianceReport(overall_status="gaps_found", met_requirements=[], gaps=[])
+
+    def _fake_compare(first, second):
+        return ComplianceCrossCheck(
+            agreement_count=0,
+            disagreements=[
+                ComplianceDisagreement(
+                    requirement="State business license (separate from Landscape Contractor's License)",
+                    first_assessment="not mentioned at all",
+                    second_assessment="gap, blocking severity",
+                    explanation="The first check never considered this requirement.",
+                )
+            ],
+            summary="One entirely new concern raised only by the audit.",
+        )
+
+    monkeypatch.setattr(orchestrator_module, "audit_compliance", _fake_audit)
+    monkeypatch.setattr(orchestrator_module, "compare_compliance_reports", _fake_compare)
+
+    job = BidJob(rfp_path=RFP_PATH, profile_path=PROFILE_PATH, output_dir=str(tmp_path))
+    orchestrator = build_orchestrator(job)
+    orchestrator.tool.load_rfp_and_profile()
+    orchestrator.tool.extract_rfp_requirements()
+    orchestrator.tool.check_company_compliance()
+
+    assert job.compliance.overall_status == "ready"
+    assert len(job.compliance.gaps) == 0
+
+    orchestrator.tool.cross_verify_compliance()
+
+    assert len(job.compliance.gaps) == 1
+    new_gap = job.compliance.gaps[0]
+    assert new_gap.requirement == "State business license (separate from Landscape Contractor's License)"
+    assert new_gap.status == "needs_review"
+    assert new_gap.severity == Severity.BLOCKING
+    assert job.compliance.overall_status == "gaps_found"
+
+    decisions = (tmp_path / "decisions_needed.md").read_text()
+    assert "State business license" in decisions

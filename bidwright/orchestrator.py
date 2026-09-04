@@ -21,6 +21,7 @@ from pathlib import Path
 from strands import Agent, tool
 
 from bidwright.agents.amendment_analyzer import analyze_amendment
+from bidwright.agents.compliance_auditor import audit_compliance, compare_compliance_reports
 from bidwright.agents.compliance_checker import check_compliance
 from bidwright.agents.proposal_drafter import draft_proposal
 from bidwright.agents.proposal_reviewer import review_proposal
@@ -32,17 +33,21 @@ from bidwright.models import (
     BidHistory,
     BidHistoryEntry,
     BidHistoryGap,
+    ComplianceCrossCheck,
+    ComplianceGap,
     ComplianceReport,
     GuardrailResult,
     ProposalDraft,
     RecurringGapInsight,
     ReviewResult,
     RFPRequirements,
+    Severity,
     TeamingPlan,
 )
 from bidwright.rendering import (
     render_amendment_impact_md,
     render_compliance_md,
+    render_cross_check_md,
     render_decision_summary_md,
     render_guardrail_md,
     render_portfolio_insights_md,
@@ -72,34 +77,44 @@ For every job, always run the full pipeline in this order:
 1. load_rfp_and_profile
 2. extract_rfp_requirements
 3. check_company_compliance
-4. record_bid_and_check_portfolio_trends
-5. draft_teaming_plan_tool
-6. create_submission_deadline_reminder
-7. analyze_rfp_amendment
-8. draft_proposal_document
-9. review_proposal_document
-10. check_proposal_guardrail
+4. cross_verify_compliance
+5. record_bid_and_check_portfolio_trends
+6. draft_teaming_plan_tool
+7. create_submission_deadline_reminder
+8. analyze_rfp_amendment
+9. draft_proposal_document
+10. review_proposal_document
+11. check_proposal_guardrail
 
-Step 4 records this bid's compliance outcome to a persistent cross-bid \
+Step 4 gets a second, INDEPENDENT compliance opinion from a separate \
+auditor agent that has not seen step 3's conclusions, then compares the \
+two. This is not a revision of step 3's work - it's a genuinely separate \
+assessment, and any disagreement between the two is never silently \
+resolved in either direction: it forces that requirement to needs_review \
+so a human looks at it directly. Always call it right after \
+check_company_compliance, even when you expect the two to agree - the \
+whole point is that you don't actually know that until you check.
+
+Step 5 records this bid's compliance outcome to a persistent cross-bid \
 history file and checks whether any of this run's gaps have also shown up \
 on this company's recent past bids - a pattern invisible from any single \
 bid's compliance report. Always call it right after the compliance check, \
 even on the very first bid ever recorded (it reports "not enough history \
 yet" cleanly, that is not a failure).
 
-Step 5 looks at whatever compliance gaps step 3 found and recommends where \
+Step 6 looks at whatever compliance gaps step 3 found and recommends where \
 teaming with a subcontractor or joint-venture partner could close the ones \
 this company can't plausibly fix alone - always call it right after the \
 compliance check, even if there are zero gaps (it still reports that cleanly, \
 that is not a failure).
 
-Step 7 only matters when an amendment/addendum document was provided for \
+Step 8 only matters when an amendment/addendum document was provided for \
 this job - always call it anyway, right after the compliance check and before \
 drafting the proposal, so a changed requirement can't slip into a stale \
 proposal draft. If it reports back that no amendment is configured, that is \
 not a failure - just move on to draft_proposal_document.
 
-Step 9 is a skeptical second reviewer that compares the drafted proposal \
+Step 10 is a skeptical second reviewer that compares the drafted proposal \
 against the compliance report and company profile, checking only for \
 concrete, checkable problems - a false compliance claim, an invented \
 certification/capability, or a silently omitted blocking gap - never prose \
@@ -111,14 +126,14 @@ just by this instruction: calling review_proposal_document a second time \
 after a revision has already happened returns immediately without \
 re-reviewing, so you cannot loop forever chasing a perfect review even if \
 you wanted to. Treat "maximum review-revision pass already used" as your \
-signal to stop revising and move on to step 10 regardless of the earlier \
+signal to stop revising and move on to step 11 regardless of the earlier \
 verdict.
 
-Step 10 runs a guardrail check on the CURRENT proposal draft for language \
+Step 11 runs a guardrail check on the CURRENT proposal draft for language \
 that overstates compliance or promises a contract outcome the business \
 can't control. Always call it after review_proposal_document, whether or \
 not that review found issues - it is a separate, independent check, not a \
-retry of step 9.
+retry of step 10.
 
 Then write a final answer for a busy small business owner who has 30 seconds. \
 Your tool results only give you counts and filenames, not the actual gap \
@@ -131,6 +146,9 @@ answer must include, in this order:
 - The submission deadline.
 - A direct pointer to decisions_needed.md as the place to read the specific \
 blocking gaps and recommended actions - do not enumerate them yourself.
+- One line noting how many requirements the independent audit disagreed on \
+(state the count only, from cross_verify_compliance's result - never invent \
+which ones) and a pointer to compliance_cross_check.md.
 - Where to find the full requirements, compliance report, and proposal draft \
 files.
 - A pointer to proposal_review.md (count of issues only, never enumerate \
@@ -157,6 +175,7 @@ class BidJob:
     profile_text: str = ""
     requirements: RFPRequirements | None = None
     compliance: ComplianceReport | None = None
+    cross_check: ComplianceCrossCheck | None = None
     amendment_impact: AmendmentImpact | None = None
     teaming_plan: TeamingPlan | None = None
     proposal: ProposalDraft | None = None
@@ -227,6 +246,84 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             f"{len(job.compliance.gaps)} gap(s) found ({len(blocking)} blocking). "
             "Full report saved to compliance_report.md, human-facing summary saved to "
             "decisions_needed.md."
+        )
+        job.activity_log.append(msg)
+        return msg
+
+    @tool
+    def cross_verify_compliance() -> str:
+        """Get a second, independent compliance assessment from a separate
+        auditor agent that has NOT seen the first check's conclusions, then
+        compare the two reports. A genuine disagreement is never silently
+        resolved in favor of either agent - it forces that requirement to
+        needs_review severity in the compliance report regardless of what
+        either agent concluded alone, and both reports plus every
+        disagreement are written to compliance_cross_check.md for a human to
+        see. Must be called after check_company_compliance."""
+        if job.compliance is None or job.requirements is None:
+            return "Error: call check_company_compliance first."
+        audit = audit_compliance(job.requirements, job.profile_text)
+        job.cross_check = compare_compliance_reports(job.compliance, audit)
+
+        if job.cross_check.disagreements:
+            # Escalate: force every disputed requirement to needs_review in
+            # the ORIGINAL report too, so decisions_needed.md reflects the
+            # disagreement rather than silently trusting the first check
+            # alone. Match on the disagreement's verbatim-copied requirement
+            # text first, falling back to a case-insensitive substring match
+            # since an LLM's "verbatim" copy is not always byte-exact.
+            #
+            # Live testing found a real gap here: when the independent
+            # auditor flags something the first check missed ENTIRELY (no
+            # matching ComplianceGap exists at all - not even mentioned in
+            # met_requirements), there was nothing to flip, so the
+            # disagreement showed up in compliance_cross_check.md but
+            # compliance_report.md/decisions_needed.md never gained the new
+            # concern. Fixed: when no existing gap matches, append a new one
+            # constructed from the disagreement itself, defaulting to
+            # blocking severity - a newly-discovered concern from an
+            # independent audit is exactly the kind of thing that should
+            # never be silently dropped just because the first pass missed it.
+            for disagreement in job.cross_check.disagreements:
+                target = disagreement.requirement.strip().lower()
+                matched = False
+                for gap in job.compliance.gaps:
+                    gap_text = gap.requirement.strip().lower()
+                    if gap_text == target or gap_text in target or target in gap_text:
+                        matched = True
+                        if gap.status != "needs_review":
+                            gap.status = "needs_review"
+                        break
+                if not matched:
+                    job.compliance.gaps.append(
+                        ComplianceGap(
+                            requirement=disagreement.requirement,
+                            status="needs_review",
+                            severity=Severity.BLOCKING,
+                            detail=(
+                                f"Raised only by the independent audit, not the first compliance "
+                                f"check: {disagreement.second_assessment} — {disagreement.explanation}"
+                            ),
+                            recommendation="Review this requirement directly - the two independent "
+                            "assessments disagreed on whether it even applies here.",
+                        )
+                    )
+                    job.compliance.overall_status = "gaps_found"
+            save_text_file(str(out_dir / "compliance_report.md"), render_compliance_md(job.compliance))
+            save_text_file(
+                str(out_dir / "decisions_needed.md"),
+                render_decision_summary_md(job.requirements, job.compliance),
+            )
+
+        save_text_file(str(out_dir / "compliance_cross_check.md"), render_cross_check_md(job.cross_check))
+        msg = (
+            f"Independent audit complete: {job.cross_check.agreement_count} requirement(s) agree, "
+            f"{len(job.cross_check.disagreements)} disagreement(s) found"
+            + (
+                " - forced to needs_review, see compliance_cross_check.md."
+                if job.cross_check.disagreements
+                else ". See compliance_cross_check.md."
+            )
         )
         job.activity_log.append(msg)
         return msg
@@ -440,6 +537,7 @@ def build_orchestrator(job: BidJob, callback_handler=None) -> Agent:
             load_rfp_and_profile,
             extract_rfp_requirements,
             check_company_compliance,
+            cross_verify_compliance,
             record_bid_and_check_portfolio_trends,
             draft_teaming_plan_tool,
             create_submission_deadline_reminder,

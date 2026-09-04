@@ -63,6 +63,7 @@ _FILE_SPECS: list[dict[str, Any]] = [
     },
     {"name": "requirements.md", "label": "Requirements"},
     {"name": "compliance_report.md", "label": "Compliance Report"},
+    {"name": "compliance_cross_check.md", "label": "Independent Audit"},
     {"name": "proposal_draft.md", "label": "Proposal Draft"},
 ]
 
