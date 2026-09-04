@@ -46,7 +46,10 @@ and a medical record excerpt), ClaimClarity:
    source of confidently wrong billing advice). Every item is classified as a
    `billing_error` (mechanically fixable), `documentation_gap` (needs more
    info from the provider), or `valid_denial` (genuinely excluded — not worth
-   appealing) — each with cited evidence, never a guess.
+   appealing) — each with cited evidence, never a guess. Immediately followed
+   by an **independent second opinion** from a separate auditor agent, using
+   the same real ICD-10 lookup tools — see
+   [Independent Denial Cross-Check](#independent-denial-cross-check) below.
 5. **Records this case and checks for a recurring insurer pattern**: appends
    this claim's denied line items and denial reasons to a small persistent
    history file and scans it — by plain code, never an LLM judgment — for a
@@ -319,6 +322,16 @@ the agent is held to the same evidence discipline as `denial_investigator.py`
 and the escalation advisor: it never invents a diagnosis, test result, or
 treatment history that isn't already in the claim record or findings it was
 given.
+
+## Independent Denial Cross-Check
+
+`denial_investigator.py`'s classification of each denied line item - `billing_error`, `documentation_gap`, or `valid_denial` - is the one judgment call in this pipeline with the most direct effect on the patient: get it wrong and the appeal either fights a battle that can't be won, or skips one that could have been. A single LLM call, however carefully prompted and tool-grounded, is still a single opinion. Right after `investigate_denial`, `cross_verify_denial_findings` gets a second, genuinely **independent** investigation from a separate auditor agent (`claimclarity/agents/denial_auditor.py`): the same claim record, and the same real ICD-10 lookup tools (`lookup_icd10_code`, `search_icd10_codes`) the first investigator used, but the auditor never sees the first investigation's conclusions, and its system prompt is deliberately more skeptical about an easy "billing_error" read.
+
+**A genuine disagreement between the two is never silently resolved in favor of either investigation - it forces that line item's classification to `needs_review`, and `worth_appealing=True` so it's never silently dropped from the appeal-worthy list**, regardless of which investigation concluded what. Unlike BidWright's compliance cross-check, comparing the two here is **plain code, not another LLM call** (`claimclarity/agents/denial_auditor.py:compare_denial_findings`): every `LineItemFinding` already carries a stable `procedure_code` from the same `ClaimRecord` both investigations worked from, so matching and diffing classifications is exact, not a semantic-matching problem.
+
+Every line item's comparison, agreement or not, is written to `denial_cross_check.md`, and is surfaced as its own tab in the web UI (labeled "Independent Audit") alongside the other generated files.
+
+**Honest limitation:** this adds one more model call per claim (the independent audit, with its own real ICD-10 lookups), and in most cases the two investigations agree - the tool-grounded lookup step is exactly what makes a single investigation fairly reliable already. The value is in catching the line items they *don't* agree on and making sure a disputed classification always gets a closer human look rather than resting on the assumption that one investigation got it right.
 
 ## Independent Review & Guardrail Check
 

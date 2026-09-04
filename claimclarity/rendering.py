@@ -9,6 +9,7 @@ from __future__ import annotations
 from claimclarity.models import (
     AppealPackage,
     ClaimRecord,
+    DenialCrossCheck,
     DenialFindings,
     EscalationPackage,
     GuardrailResult,
@@ -106,6 +107,39 @@ def render_review_md(review: ReviewResult) -> str:
 
 ## Issues
 {_bullets(review.issues)}
+"""
+
+
+def render_cross_check_md(cross_check: DenialCrossCheck) -> str:
+    verdict = (
+        "✅ No disagreements — the independent audit reached the same conclusions."
+        if cross_check.disagreement_count == 0
+        else f"⚠️ {cross_check.disagreement_count} disagreement(s) found — forced to needs_review."
+    )
+
+    def item_block(item) -> str:
+        agree_mark = "✅ Agree" if item.agrees else "⚠️ Disagree"
+        return (
+            f"### {item.procedure_code} — {agree_mark}\n"
+            f"- **First investigation:** {item.first_classification}\n"
+            f"- **Independent auditor:** {item.second_classification}\n"
+        )
+
+    items_md = "\n".join(item_block(i) for i in cross_check.items) if cross_check.items else "_No line items._"
+
+    return f"""# Independent Denial Cross-Check
+
+A second, independent auditor agent re-investigated every denied line item \
+from scratch, using the same claim record and the same real ICD-10 lookup \
+tools, but with no knowledge of the first investigation's conclusions.
+
+**Verdict:** {verdict}
+
+## Line items
+{items_md}
+
+## Summary
+{cross_check.summary}
 """
 
 

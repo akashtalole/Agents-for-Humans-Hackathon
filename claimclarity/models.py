@@ -222,6 +222,31 @@ class ReviewResult(BaseModel):
     summary: str
 
 
+class DenialCrossCheckItem(BaseModel):
+    """One denied line item's classification, compared between the first
+    investigation and an independent second audit that never saw the first
+    investigator's conclusions - matched by procedure_code, a stable field
+    both investigations receive from the same ClaimRecord."""
+
+    procedure_code: str
+    first_classification: str
+    second_classification: str
+    agrees: bool
+
+
+class DenialCrossCheck(BaseModel):
+    """The result of comparing two independently-produced DenialFindings for
+    the same claim - a genuine second opinion, not a revision of the first
+    investigator's own work. Built entirely in plain code (matching by
+    procedure_code, comparing classification strings), never an LLM
+    judgment, since both inputs are already structured - see
+    orchestrator.py's cross_verify_denial_findings."""
+
+    items: list[DenialCrossCheckItem] = Field(default_factory=list)
+    disagreement_count: int
+    summary: str
+
+
 class GuardrailFinding(BaseModel):
     """One concrete guardrail violation found in a drafted appeal letter -
     either by the deterministic regex scan or the agent-based check. See

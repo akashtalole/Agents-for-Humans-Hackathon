@@ -85,6 +85,7 @@ FILE_MANIFEST = [
     },
     {"name": "claim_summary.md", "label": "Claim Summary"},
     {"name": "denial_findings.md", "label": "Denial Findings"},
+    {"name": "denial_cross_check.md", "label": "Independent Audit"},
     {"name": "appeal_package.md", "label": "Appeal Package"},
     {
         "name": "escalation_package.md",
@@ -115,6 +116,7 @@ _CHAT_CONTEXT_CHAR_LIMIT = 40_000
 _CHAT_CONTEXT_DROP_ORDER = [
     "appeal_review.md",
     "appeal_guardrail.md",
+    "denial_cross_check.md",
     "insurer_pattern_report.md",
     "physician_evidence_request.md",
     "escalation_package.md",
