@@ -60,19 +60,19 @@
 <break time="1s"/>
 
 <!-- ============================================================ -->
-<!-- SECTION 4: LIVE DEMO WALKTHROUGH (~2:00-4:15) -->
-<!-- SCREEN: Streamlit app loading, disclaimer banner visible -->
+<!-- SECTION 4: LIVE DEMO WALKTHROUGH (~2:00-3:30) -->
+<!-- SCREEN: Web UI (webapp/glacierwatch), disclaimer banner visible before any run happens -->
 <!-- ============================================================ -->
 <p>
 <s>Let's watch it run.</s>
-<s>This is the live app. Notice the banner at the top, before anything else loads: this is decision support, not a prediction system. That disclaimer is on every single report GlacierWatch ever produces.</s>
+<s>This is the live web app. Notice the banner at the top, before anything else loads: this is decision support, not a prediction system. That disclaimer is on every single report GlacierWatch ever produces, and it's the first thing shown, before a run even starts.</s>
 </p>
 
 <break time="500ms"/>
 
-<!-- SCREEN: sidebar showing the reference watchlist description, click Run GlacierWatch -->
+<!-- SCREEN: click Run -->
 <p>
-<s>We click <emphasis level="moderate">Run GlacierWatch</emphasis>. No file to upload, no form to fill in — it runs against a small, bundled watchlist of four real Himalayan sites, and every fact about them is sourced to a published assessment.</s>
+<s>We click <emphasis level="moderate">Run</emphasis>. No file to upload, no form to fill in — it runs against a small, bundled watchlist of four real Himalayan sites, and every fact about them is sourced to a published assessment.</s>
 </p>
 
 <break time="500ms"/>
@@ -85,28 +85,39 @@
 
 <break time="700ms"/>
 
-<!-- SCREEN: Weekly Watchlist tab, elevated sites -->
+<!-- SCREEN: Weekly Watchlist tab -->
 <p>
-<s>Once it finishes, this is the Weekly Watchlist — the trusted report.</s>
-<s>Two of our four sites, Gepang Gath and Samudra Tapu in Himachal Pradesh, come back <emphasis level="moderate">elevated</emphasis>: both have a documented, formally assessed high-risk profile, but this week's real conditions show no acute trigger — no extreme rainfall, no significant nearby seismic activity.</s>
-<s>The other two sites are historical case studies, already drained, held at routine — used only to calibrate the tool's rainfall threshold, never implied to be building toward another failure.</s>
+<s>Once it finishes, this is the Weekly Watchlist — the trusted report. Each active site gets a priority level, driven by its documented risk profile combined with this week's actual conditions — not a guess, and never a forecast of when a failure might happen.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Independent Audit tab (cross-check output) -->
+<p>
+<s>Every site's priority is also independently re-checked by a second agent that never sees the first assessment's answer. When the two disagree, GlacierWatch always adopts whichever rating is <emphasis level="moderate">more cautious</emphasis> — never the more convenient one. Understating risk here is worse than overstating it, so that's the only direction ties break.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Community Alert Bulletin for a priority-level site (use a bundled example if none hit priority this run) -->
+<p>
+<s>A site formally identified as dangerous doesn't help anyone if the people downstream never hear about it — that's what actually happened at South Lhonak. So for any site that reaches <emphasis level="moderate">priority</emphasis> this week, GlacierWatch drafts a plain-language Community Alert Bulletin: named downstream settlements, concrete actions a village committee itself can take — never an evacuation order, that's not this tool's authority — and a public notice in English and, where confident, the local language.</s>
 </p>
 
 <break time="500ms"/>
 
 <!-- SCREEN: Current Conditions tab -->
 <p>
-<s>And here's Current Conditions — the actual live numbers behind that judgment: today's precipitation, categorized on India's own official rainfall scale, and the nearest recent seismic events, with their distance and magnitude spelled out.</s>
-<s>Every number here is real, fetched at the moment this report ran.</s>
+<s>And here's Current Conditions — the actual live numbers behind every judgment on this page: today's precipitation, categorized on India's own official rainfall scale, and the nearest recent seismic events, with their distance and magnitude spelled out. Every number here is real, fetched at the moment this report ran.</s>
 </p>
 
 <break time="1s"/>
 
 <!-- ============================================================ -->
-<!-- SECTION 5: CLOSE (~4:15-4:50) -->
+<!-- SECTION 5: CLOSE (~3:30-3:50) -->
 <!-- ============================================================ -->
 <p>
-<s>That's GlacierWatch: published, cited hazard data, plus this week's real conditions, turned into one honest, disclaimed priority list.</s>
+<s>That's GlacierWatch: published, cited hazard data, plus this week's real conditions, cross-checked by a second independent agent, turned into one honest, disclaimed priority list — and, when it matters, a bulletin that actually reaches the people downstream.</s>
 </p>
 
 <break time="500ms"/>

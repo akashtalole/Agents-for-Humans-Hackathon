@@ -59,8 +59,8 @@
 
 <!-- ================================================================ -->
 <!-- SECTION 4: LIVE DEMO WALKTHROUGH                                 -->
-<!-- SCREEN: Streamlit app, sidebar visible, example RFP + company profile selected -->
-<!-- Target run time: ~2m 15s — this is the core of the video -->
+<!-- SCREEN: Web UI (webapp/bidwright), example RFP + company profile pre-selected -->
+<!-- Target run time: ~1m 30s — this is the core of the video -->
 <!-- ================================================================ -->
 <p>
   <s>Let's watch it work on a real example: a municipal landscaping RFP,
@@ -69,72 +69,69 @@
 
 <break time="500ms"/>
 
-<!-- SCREEN: Click "Run BidWright"; live agent activity log streaming tool calls -->
+<!-- SCREEN: Click "Run"; live agent activity log streaming tool calls via Server-Sent Events -->
 <p>
-  <s>One click, and an orchestrator agent takes over — coordinating three
+  <s>One click, and an orchestrator agent takes over — coordinating
   specialized sub-agents, each returning validated, structured data instead
-  of loose text one agent might hand the next and get wrong.</s>
+  of loose text one agent might hand the next and get wrong. The activity
+  log below is streaming real tool calls as they happen, not a canned
+  animation.</s>
 </p>
 
 <break time="500ms"/>
 
-<!-- SCREEN: RFP Analyzer extracting requirements — highlight requirements.md content -->
+<!-- SCREEN: Compliance Report tab, gaps highlighted -->
 <p>
-  <s>First, the RFP Analyzer reads the full solicitation and extracts a
-  structured record: the submission deadline, required licenses and
-  certifications, minimum insurance coverage, evaluation criteria,
-  and a complete submission checklist.</s>
+  <s>The Compliance Checker compares every requirement against the
+  company's actual profile — insurance certificates, licenses, staff
+  qualifications — and on this run it correctly caught the company's
+  general liability insurance sitting at one million dollars when the RFP
+  requires two million per occurrence, plus a missing signed cover letter
+  and a missing pricing schedule. Real gaps, precisely identified.</s>
 </p>
 
 <break time="500ms"/>
 
-<!-- SCREEN: Compliance Checker output — compliance_report.md, gaps highlighted -->
+<!-- SCREEN: Independent Audit tab (cross-check output) -->
 <p>
-  <s>Next, the Compliance Checker compares every single requirement against
-  the company's actual profile — insurance certificates, licenses, staff
-  qualifications — and marks each one <prosody rate="95%">met</prosody>,
-  <prosody rate="95%">gap</prosody>, or <prosody rate="95%">needs review</prosody>,
-  with a severity and a concrete next step.</s>
-</p>
-
-<break time="400ms"/>
-
-<p>
-  <s>On this run, it correctly caught the company's general liability
-  insurance sitting at one million dollars when the RFP requires two million
-  per occurrence — along with a missing signed cover letter and a missing
-  pricing schedule. Real gaps, precisely identified.</s>
+  <s>Right after that, a second, completely independent auditor agent
+  re-derives its own compliance verdict from scratch — it never sees the
+  first check's answer. Any disagreement between the two is never quietly
+  resolved in favor of either one; it gets forced into
+  <emphasis level="moderate">needs review</emphasis> so a human decides,
+  not a coin flip between two model calls.</s>
 </p>
 
 <break time="500ms"/>
 
-<!-- SCREEN: submission_deadline.ics / calendar reminder -->
+<!-- SCREEN: Approval panel — reviewer verdict + guardrail findings + edited textarea; click Approve -->
 <p>
-  <s>While that's happening, BidWright also writes a calendar reminder for
-  the submission deadline — with automatic three-day and one-day advance
-  warnings, so the deadline itself never becomes one more thing to track
-  by hand.</s>
+  <s>Before a proposal ever reaches a human, it passes a critic agent that
+  checks the drafted text against the compliance report itself — catching,
+  on a real run, the drafted letter claiming "we carry all required
+  insurance" while the report showed that exact coverage as a blocking gap
+  — plus a guardrail scan for overclaiming language. Nothing is
+  auto-submitted: the run lands here, in an approval panel, and a human
+  has to actually click Approve.</s>
 </p>
 
 <break time="500ms"/>
 
-<!-- SCREEN: Proposal Drafter output — proposal_draft.md tab -->
+<!-- SCREEN: Chat tab — type "what's the submission deadline?", show grounded answer -->
 <p>
-  <s>Then the Proposal Drafter writes the actual proposal: cover letter,
-  executive summary, technical approach, qualifications, and a compliance
-  matrix — honestly flagging the open gaps instead of papering over them.
-  Pricing is left to the owner; BidWright never invents numbers.</s>
+  <s>And you can ask it questions directly — this chat is grounded only in
+  that job's own generated files, so if the answer isn't in there, it says
+  so instead of guessing.</s>
 </p>
 
 <break time="500ms"/>
 
 <!-- SCREEN: Decisions Needed tab, front and center -->
 <p>
-  <s>And everything funnels into exactly one place a busy owner actually
-  needs to read: <emphasis level="moderate">Decisions Needed</emphasis>.</s>
+  <s>Everything funnels into exactly one place a busy owner actually needs
+  to read: <emphasis level="moderate">Decisions Needed</emphasis>.</s>
   <s>One summary. Either "ready to submit," or here are the specific
-  blocking gaps and what closes each one. Nothing else requires your
-  attention unless you want to dig in.</s>
+  blocking gaps and what closes each one.</s>
 </p>
 
 <break time="700ms"/>
@@ -142,17 +139,18 @@
 <!-- ================================================================ -->
 <!-- SECTION 5: CLOSE                                                 -->
 <!-- SCREEN: BidWright logo/title card, then architecture diagram briefly -->
-<!-- Target run time: ~25s -->
+<!-- Target run time: ~20s -->
 <!-- ================================================================ -->
 <p>
   <s>BidWright drafts. It doesn't submit — a human always reviews and signs
-  off, which is the entire point of that one summary.</s>
+  off, which is the entire point of that approval panel.</s>
 </p>
 
 <p>
-  <s>Next up: broader document formats, more jurisdictions, and a verified
-  deployment on Amazon Bedrock AgentCore for teams that want it running in
-  the cloud, not just on a laptop.</s>
+  <s>And this is just the core loop — the same run also checks for a
+  teaming partner when a gap can't be closed alone, flags when an RFP
+  amendment invalidates a proposal already in progress, and tracks
+  recurring gaps across a company's bid history.</s>
 </p>
 
 <break time="400ms"/>
