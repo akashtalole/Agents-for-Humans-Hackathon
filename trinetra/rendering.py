@@ -10,8 +10,12 @@ from __future__ import annotations
 from trinetra.models import (
     CalibrationResult,
     CommandBrief,
+    CompoundRiskAssessment,
+    HydrologyAdvisory,
     NTKMAAdvisory,
     PilgrimGuidance,
+    RumorAssessment,
+    RumorGuardrailResult,
     SafetyTriage,
     SimulationReport,
 )
@@ -124,6 +128,97 @@ def render_safety_triage_md(triage: SafetyTriage) -> str:
         f"**Routed to:** {triage.dispatch_target}\n\n"
         f"**Rationale:** {triage.rationale}\n"
     )
+
+
+def render_compound_risk_md(
+    assessment: CompoundRiskAssessment, advisory: HydrologyAdvisory | None = None
+) -> str:
+    """The Godavari compound-risk report. Every number here comes straight
+    from the deterministic assessment - the advisory, if present, only adds
+    interpretation around them."""
+    lines = [
+        "# Godavari Compound Risk — dam release into a crowded riverfront",
+        "",
+        DISCLAIMER,
+        "",
+        f"**Overall risk: {assessment.overall_risk.value.upper()}**",
+        "",
+        f"- Gangapur Dam discharge: **{assessment.discharge_cusecs:,} cusecs**",
+        f"- Godavari stage: **{assessment.river_stage.value.upper()}**",
+        f"- Estimated flood lead time to the Panchavati/Ramkund riverfront: **{assessment.lead_time_minutes} minutes**",
+    ]
+    if assessment.recent_rainfall_mm is not None:
+        lines.append(f"- Recent peak daily rainfall (live): **{assessment.recent_rainfall_mm} mm** — {assessment.rainfall_note}")
+    else:
+        lines.append(f"- Rainfall: _{assessment.rainfall_note}_")
+    lines.append("")
+
+    if advisory:
+        lines += [f"## {advisory.headline}", "", advisory.narrative_summary, ""]
+        if advisory.ghats_to_clear_first:
+            lines += ["**Clear in this order:** " + " → ".join(advisory.ghats_to_clear_first), ""]
+
+    lines += ["## Can each ghat be cleared before the water arrives?", ""]
+    if not assessment.ghat_feasibility:
+        lines.append("_No flood-exposed ghat currently has reported occupancy._")
+    for f in assessment.ghat_feasibility:
+        verdict = "✅ clears with margin" if f.feasible else ("❌ CANNOT CLEAR IN TIME" if f.margin_minutes < 0 else "⚠️ margin too thin")
+        lines.append(f"### {f.ghat_name} — {f.risk.value.upper()} · {verdict}")
+        lines.append(f"- Occupancy: {f.occupancy:,} people")
+        lines.append(f"- Mobility-adjusted egress: {f.effective_egress_per_min:.0f} people/min")
+        lines.append(f"- Time to clear: **{f.clearance_minutes:.0f} min** vs **{f.lead_time_minutes} min** of lead time")
+        lines.append(f"- Margin: **{f.margin_minutes:+.0f} min**")
+        lines.append("")
+
+    if assessment.findings:
+        lines += ["## Findings", "", _bullets(assessment.findings), ""]
+
+    if advisory and advisory.recommended_actions:
+        lines += ["## Recommended actions", ""]
+        for rec in advisory.recommended_actions:
+            lines.append(
+                f"- **{rec.target_name}** ({rec.current_risk.value}): {rec.action.value} "
+                f"— {rec.rationale} (respond within {rec.urgency_minutes} min)"
+            )
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def render_rumor_assessment_md(
+    assessment: RumorAssessment, guardrail: RumorGuardrailResult | None = None
+) -> str:
+    lines = [
+        "# Rumor Assessment — Kumbh Rakshak rumor desk",
+        "",
+        f"**Crush risk: {assessment.crush_risk.value.upper()}** · category: {assessment.category}",
+        "",
+        f"**Why it's dangerous:** {assessment.why_dangerous}",
+        "",
+        "## ⚠️ Verify BEFORE broadcasting anything",
+        "",
+        _bullets(assessment.verify_before_broadcast),
+        "",
+        "## Draft counter-message (NOT yet approved for broadcast)",
+        "",
+        f"> {assessment.counter_message}",
+        "",
+        f"> {assessment.counter_message_local}",
+        "",
+        f"**Suggested channels:** {', '.join(assessment.recommended_channels)}",
+        "",
+    ]
+    if guardrail:
+        mark = "✅ passed" if guardrail.passed else "❌ BLOCKED"
+        lines += [f"## Guardrail scan — {mark}", "", guardrail.summary, ""]
+        for finding in guardrail.findings:
+            lines.append(f"- **{finding.rule}** — “{finding.excerpt}” — {finding.explanation}")
+        if guardrail.findings:
+            lines.append("")
+    lines.append(
+        "_Trinetra never broadcasts. A human official verifies the points above and issues the message._"
+    )
+    return "\n".join(lines)
 
 
 def render_pilgrim_guidance_md(guidance: PilgrimGuidance) -> str:

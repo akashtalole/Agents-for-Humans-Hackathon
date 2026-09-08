@@ -34,21 +34,29 @@ from fastapi.staticfiles import StaticFiles
 
 from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
+from trinetra.agents.hydrology_advisor import advise_on_compound_risk
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
+from trinetra.agents.rumor_analyst import assess_rumor
 from trinetra.agents.safety_triage import triage_sos_report
 from trinetra.config import model_status
 from trinetra.models import (
     CrowdSignal,
+    DamRelease,
     IncidentType,
     IndianLanguage,
+    MobilityProfile,
     NetworkMode,
     PilgrimQuery,
+    RumorReport,
     SimulationScenario,
     SOSReport,
 )
 from trinetra.tools.calibration import run_all_calibration_cases
 from trinetra.tools.crowd_signals import manual_signal
 from trinetra.tools.geography import load_sites
+from trinetra.tools.hydrology import assess_compound_risk
+from trinetra.tools.rainfall import fetch_recent_rainfall_mm
+from trinetra.tools.rumor_guardrail import scan_counter_message
 from trinetra.tools.simulator import simulate_scenario
 
 app = FastAPI(title="Trinetra API")
@@ -235,6 +243,96 @@ async def simulation_events(job_id: str):
                 break
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# --- Godavari compound flood risk -------------------------------------------
+
+
+def _run_flood_assessment(discharge_cusecs: int, occupancy: dict[str, int], elderly_share: float, fetch_rainfall: bool):
+    """Blocking work (a live rainfall fetch plus one model call) - always run
+    via the executor, never directly on the asyncio event loop."""
+    rainfall_mm: float | None = None
+    rainfall_note = "Live rainfall lookup skipped for this assessment."
+    if fetch_rainfall:
+        rainfall_mm, rainfall_note = fetch_recent_rainfall_mm()
+
+    elderly = max(0.0, min(1.0, elderly_share))
+    mobility_mix = {
+        MobilityProfile.ELDERLY_OR_MOBILITY_LIMITED: elderly,
+        MobilityProfile.STANDARD: 1.0 - elderly,
+    }
+    assessment = assess_compound_risk(
+        DamRelease(discharge_cusecs=discharge_cusecs),
+        _GHATS,
+        occupancy,
+        mobility_mix=mobility_mix,
+        recent_rainfall_mm=rainfall_mm,
+        rainfall_note=rainfall_note,
+    )
+    advisory = advise_on_compound_risk(assessment)
+    return assessment, advisory
+
+
+@app.post("/api/flood-risk")
+async def flood_risk(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Assess a Gangapur Dam release against current ghat occupancy - can
+    each flood-exposed ghat be cleared before the water arrives?"""
+    try:
+        discharge = int(body["discharge_cusecs"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"discharge_cusecs is required and must be an integer: {exc}") from exc
+
+    raw_occupancy = body.get("occupancy") or {}
+    if not raw_occupancy:
+        raise HTTPException(status_code=400, detail="occupancy is required, e.g. {\"ramkund\": 8000}")
+
+    occupancy: dict[str, int] = {}
+    for ghat_id, count in raw_occupancy.items():
+        if ghat_id not in _GHATS:
+            raise HTTPException(status_code=400, detail=f"Unknown ghat_id: {ghat_id}")
+        occupancy[ghat_id] = int(count)
+
+    elderly_share = float(body.get("elderly_share", 0.4))
+    fetch_rainfall = bool(body.get("fetch_rainfall", True))
+
+    loop = asyncio.get_event_loop()
+    assessment, advisory = await loop.run_in_executor(
+        _executor, lambda: _run_flood_assessment(discharge, occupancy, elderly_share, fetch_rainfall)
+    )
+    return {
+        "assessment": assessment.model_dump(mode="json"),
+        "advisory": advisory.model_dump(mode="json"),
+    }
+
+
+# --- Kumbh Rakshak rumor desk ------------------------------------------------
+
+
+def _run_rumor_triage(report: RumorReport):
+    assessment = assess_rumor(report)
+    guardrail = scan_counter_message(assessment.counter_message)
+    return assessment, guardrail
+
+
+@app.post("/api/rumor")
+async def rumor_triage(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    text = (body.get("text") or "").strip()
+    location = (body.get("location") or "").strip()
+    if not text or not location:
+        raise HTTPException(status_code=400, detail="text and location are required.")
+
+    report = RumorReport(
+        text=text,
+        location=location,
+        reported_by=body.get("reported_by", "field staff"),
+        spreading_fast=bool(body.get("spreading_fast", False)),
+    )
+    loop = asyncio.get_event_loop()
+    assessment, guardrail = await loop.run_in_executor(_executor, lambda: _run_rumor_triage(report))
+    return {
+        "assessment": assessment.model_dump(mode="json"),
+        "guardrail": guardrail.model_dump(mode="json"),
+    }
 
 
 # --- Bhavishya Netra: calibration against real historical incidents --------

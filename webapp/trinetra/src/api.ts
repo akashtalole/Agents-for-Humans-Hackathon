@@ -1,8 +1,10 @@
 import type {
   CalibrationResult,
   CommandBrief,
+  FloodRiskResponse,
   NTKMAAdvisory,
   PilgrimGuidance,
+  RumorResponse,
   SafetyTriage,
   SimEvent,
   SimulationReport,
@@ -62,6 +64,26 @@ export function getAdminBrief(
 
 export function fetchCalibration() {
   return getJSON<{ results: CalibrationResult[] }>('/api/calibration')
+}
+
+export function assessFloodRisk(
+  dischargeCusecs: number,
+  occupancy: Record<string, number>,
+  elderlyShare: number,
+) {
+  return postJSON<FloodRiskResponse>('/api/flood-risk', {
+    discharge_cusecs: dischargeCusecs,
+    occupancy,
+    elderly_share: elderlyShare,
+  })
+}
+
+export function triageRumor(text: string, location: string, spreadingFast: boolean) {
+  return postJSON<RumorResponse>('/api/rumor', {
+    text,
+    location,
+    spreading_fast: spreadingFast,
+  })
 }
 
 export async function createSimulation(scenario: {

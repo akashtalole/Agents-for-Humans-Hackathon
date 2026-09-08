@@ -1,5 +1,21 @@
 import type { ReactNode } from 'react'
+import ReactMarkdown from 'react-markdown'
 import type { RiskLevel } from '../types'
+
+/** Free text authored by a model. Models emit Markdown whether or not you
+ * ask them to, so rendering these fields as plain text leaks literal `**`
+ * into the UI. Use this for narrative/rationale prose only - never for a
+ * broadcast counter-message, which must be shown exactly as the guardrail
+ * scanned it. */
+export function Prose({ children, className = '' }: { children: string; className?: string }) {
+  return (
+    <div
+      className={`prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-strong:text-slate-200 ${className}`}
+    >
+      <ReactMarkdown>{children}</ReactMarkdown>
+    </div>
+  )
+}
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (

@@ -25,19 +25,28 @@ from strands import Agent, tool
 
 from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
+from trinetra.agents.hydrology_advisor import advise_on_compound_risk
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
+from trinetra.agents.rumor_analyst import assess_rumor
 from trinetra.agents.safety_triage import triage_sos_report
 from trinetra.config import create_agent
 from trinetra.models import (
     CommandBrief,
+    CompoundRiskAssessment,
     CrowdSignal,
+    DamRelease,
     Ghat,
+    HydrologyAdvisory,
     IndianLanguage,
+    MobilityProfile,
     NetworkMode,
     NTKMAAdvisory,
     PilgrimGuidance,
     PilgrimQuery,
     Route,
+    RumorAssessment,
+    RumorGuardrailResult,
+    RumorReport,
     SafetyTriage,
     SimulationReport,
     SimulationScenario,
@@ -47,6 +56,9 @@ from trinetra.tools.calibration import run_all_calibration_cases
 from trinetra.tools.calibration import CalibrationResult
 from trinetra.tools.crowd_signals import signals_from_simulation
 from trinetra.tools.geography import load_sites
+from trinetra.tools.hydrology import assess_compound_risk
+from trinetra.tools.rainfall import fetch_recent_rainfall_mm
+from trinetra.tools.rumor_guardrail import scan_counter_message
 from trinetra.tools.simulator import simulate_scenario
 
 
@@ -64,6 +76,10 @@ class TrinetraSession:
     last_command_brief: CommandBrief | None = None
     last_simulation: SimulationReport | None = None
     last_advisory: NTKMAAdvisory | None = None
+    last_compound_risk: CompoundRiskAssessment | None = None
+    last_hydrology_advisory: HydrologyAdvisory | None = None
+    last_rumor_assessment: RumorAssessment | None = None
+    last_rumor_guardrail: RumorGuardrailResult | None = None
 
     def __post_init__(self) -> None:
         if not self.ghats:
@@ -103,6 +119,47 @@ def run_simulation(session: TrinetraSession, scenario: SimulationScenario) -> tu
 
 def run_calibration(session: TrinetraSession) -> list[CalibrationResult]:
     return run_all_calibration_cases()
+
+
+def assess_flood_risk(
+    session: TrinetraSession,
+    discharge_cusecs: int,
+    occupancy_by_ghat: dict[str, int],
+    mobility_mix: dict[MobilityProfile, float] | None = None,
+    fetch_rainfall: bool = True,
+) -> tuple[CompoundRiskAssessment, HydrologyAdvisory]:
+    """Godavari compound risk: a Gangapur Dam release against who is
+    currently standing on the flood-exposed ghats. The assessment is pure
+    deterministic code; only the advisory comes from a model."""
+    rainfall_mm: float | None = None
+    rainfall_note = "Live rainfall lookup skipped for this assessment."
+    if fetch_rainfall:
+        rainfall_mm, rainfall_note = fetch_recent_rainfall_mm()
+
+    assessment = assess_compound_risk(
+        DamRelease(discharge_cusecs=discharge_cusecs),
+        session.ghats,
+        occupancy_by_ghat,
+        mobility_mix=mobility_mix,
+        recent_rainfall_mm=rainfall_mm,
+        rainfall_note=rainfall_note,
+    )
+    advisory = advise_on_compound_risk(assessment)
+    session.last_compound_risk = assessment
+    session.last_hydrology_advisory = advisory
+    return assessment, advisory
+
+
+def triage_rumor(session: TrinetraSession, report: RumorReport) -> tuple[RumorAssessment, RumorGuardrailResult]:
+    """Assess a rumor's crush potential and draft a counter-message, then
+    scan that draft deterministically before any human sees it as
+    broadcast-ready - see tools/rumor_guardrail.py for why the scan is not
+    optional."""
+    assessment = assess_rumor(report)
+    guardrail = scan_counter_message(assessment.counter_message)
+    session.last_rumor_assessment = assessment
+    session.last_rumor_guardrail = guardrail
+    return assessment, guardrail
 
 
 # --- top-level conversational router (agents as tools) ---

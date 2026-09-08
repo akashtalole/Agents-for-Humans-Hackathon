@@ -91,6 +91,41 @@ trinetra simulate --name "Mauni Amavasya equivalent" --pilgrims 3000000 --durati
 
 One SOS-triage agent, not two different opinions depending on which persona is asking. Classifies severity, gives a concrete 60-second action, and routes to a specific responder type. Lost-person matching (`trinetra/tools/reunification.py`) is deliberately **pure code, never an LLM** — a false "match" sends a stressed family to the wrong person, and the module's confidence levels are always `strong` or `possible`, never `certain`; a human always confirms a match in person before anyone is told their family member has been found.
 
+### Godavari compound flood risk — the hazard nobody multiplies together
+
+Gangapur Dam releases into the Godavari upstream of Nashik. This is documented, not hypothetical: at roughly 20,000 cusecs the river crosses its danger mark, and **Ramkund and Goda Ghat have actually gone underwater** — temples submerged, Ramkund closed for two days. Separately, the irrigation department tracks discharge and NTKMA tracks crowd density. Both are competent at their own job.
+
+What appears to sit between them is the product of the two. During Kumbh, those same ghats hold tens of thousands of people, and the question that decides whether a release is an inconvenience or a disaster is not whether the river rises — it is **whether the ghat can be cleared before the water arrives**, which depends on who is standing on it.
+
+`trinetra/tools/hydrology.py` computes that in pure code: river stage from discharge, lead time from stage, and per-ghat evacuation feasibility from occupancy, access-point egress capacity, and a **mobility mix**. Kumbh crowds skew heavily elderly, and that is the load-bearing variable:
+
+```
+Ramkund, 8,000 people, 22,000 cusecs (80-minute lead time)
+
+  all able-bodied (the naive plan)       egress 100.0/min   clears  80.0 min   margin   0.0 min   elevated
+  realistic mix (40% elderly)            egress  79.5/min   clears 100.6 min   margin -20.6 min   CRITICAL
+  elderly-heavy Shahi Snan morning       egress  66.3/min   clears 120.8 min   margin -40.8 min   CRITICAL
+```
+
+The able-bodied plan reads as *exactly* feasible — zero margin, appearing to just work. The realistic one is twenty minutes short. That gap is the entire point of the module.
+
+Design decisions worth stating: results are ordered **worst-first**, because an operator reads this top-down under time pressure and the ghat that cannot be cleared must not sit below two that can merely because its name sorts later. A ghat that is *not* flood-exposed (Kushavarta is at Trimbakeshwar, off the Gangapur release path) is recorded in the findings as considered-and-ruled-out rather than silently dropped, so nobody wonders whether the tool forgot it. A danger-stage release is never reported as merely routine even if every ghat happens to clear. And a failed live-rainfall fetch is surfaced as "could not be fetched" — never defaulted to zero, which would read as "it was dry".
+
+Verified live: `trinetra flood-risk --discharge 22000 --occupancy ramkund=8000 …` produced an advisory that independently reasoned the *evacuation itself* could cause a crush by funnelling Ramkund's 8,000 into the same 1.8m Kalaram Marg lane where 39 people died in 2003 — a second-order failure the deterministic layer does not model and a human planner might miss.
+
+### Rumor triage — the crush trigger that isn't a barricade
+
+In 2025, **18 people died at New Delhi railway station** when a fainting incident spawned "rumours of a stampede-like situation" among Kumbh travellers. The rumor was the hazard. A counter-message is therefore a crowd-safety intervention — and it carries its own lethal failure mode, because the drafting agent **cannot know the rumor is false**. If it is wrong, a reassuring broadcast moves people toward the danger.
+
+So `trinetra/tools/rumor_guardrail.py` is pure code, sits between the model and the loudspeaker, and blocks two families of draft:
+
+- **Absolute reassurance** — "there is no danger", "everything is fine", "the area is completely safe", "the rumour is false". The agent is not entitled to that certainty.
+- **Unsafe crowd instruction** — "run", "hurry", "push through", "evacuate immediately". These are the words that turn a dense crowd into a moving one.
+
+A passing draft is explicitly *not* cleared to broadcast: the guardrail's summary says a human must still verify the facts listed in `verify_before_broadcast` first. Trinetra never broadcasts.
+
+Verified live and adversarially: a Hindi stampede rumor ("Ramkund pe bhagdad mach gayi hai") returned a CRITICAL assessment whose counter-message gives safety instruction *without* denying the rumor, with genuine Devanagari translation and specific verification items. All four dangerous drafts in the negative tests were blocked; the safe one passed.
+
 ## Network-resilience design
 
 A 30-50 million person event puts enormous strain on cellular networks — the honest assumption for this platform is that **not every pilgrim has a working smartphone data connection at every moment.** `trinetra/models.py`'s `NetworkMode` enum and `trinetra/tools/network_delivery.py` implement this as a first-class design axis, not an afterthought:
@@ -133,6 +168,17 @@ The underlying agent judgment is generated **once**, regardless of channel — a
      │  simulator.py (deterministic engine)  →  foresight_advisor.py (LLM)  │
      │              validated against calibration_cases.json                │
      └───────────────────────────────────────────────────────────────────┘
+
+     ┌───────────────────────────────────────────────────────────────────┐
+     │                    Compound-hazard desks (same shape)                │
+     │  hydrology.py (deterministic)  →  hydrology_advisor.py (LLM)         │
+     │       + rainfall.py (live Open-Meteo, absence recorded honestly)     │
+     │                                                                       │
+     │  rumor_analyst.py (LLM)  →  rumor_guardrail.py (deterministic)        │
+     │       note the inverted order: here code is the LAST word, because    │
+     │       the output is a broadcast and the model cannot know the rumor   │
+     │       is false. A human still verifies before anything is issued.     │
+     └───────────────────────────────────────────────────────────────────┘
 ```
 
 Same discipline as BidWright/ClaimClarity/GlacierWatch elsewhere in this repo: every agent hand-off is a validated Pydantic model (`trinetra/models.py`), deterministic renderers (`trinetra/rendering.py`) — never an LLM — produce the file a human actually reads, and the model-provider selection (`trinetra/config.py`) supports both direct Anthropic and Amazon Bedrock.
@@ -147,12 +193,14 @@ cd webapp/trinetra && npm install && npm run build && cd ../..
 python3 server_trinetra.py          # -> http://localhost:8000
 ```
 
-**The four views**, one per pillar plus calibration:
+**The views**, one per pillar plus the two compound-hazard desks and calibration:
 
 - **Overview** — live KPI cards (ghats monitored, routes mapped, narrowest approach, calibration pass rate) computed from the real bundled data and a live `/api/calibration` call, not hardcoded numbers.
 - **Yatri Netra** — a chat-style pilgrim assistant with a language picker (all nine supported languages), sample queries, and a highlighted emergency-escalation banner. Verified live: the crowd-crush sample query correctly triggered `escalate_to_sos`, gave sound crush-safety guidance (stay upright, don't push, shout for help), and cited the real 1.8m Kalaram Marg lane width from the bundled site data.
 - **Prashasan Netra** — sliders for each ghat's current occupancy/inflow/outflow feeding a live `/api/admin/brief` call, rendering Prashasan Command's per-ghat recommendations with risk badges and urgency windows.
 - **Bhavishya Netra — the flagship digital twin.** A scenario builder (with one-click presets for the two calibration disasters plus a routine day and a hypothetical Mauni Amavasya-scale peak) drives a **live-animated network diagram**: ghat nodes sized and colored by real-time occupancy, pulsing when critical, route edges highlighted amber when they're the binding bottleneck — all built from `trinetra/tools/simulator.py`'s `on_tick` callback streamed over Server-Sent Events (`/api/simulations/{id}/events`), one synchronized snapshot of every active ghat per simulated minute, not per-ghat sequential playback. An occupancy timeline chart accumulates alongside it in real time. When the simulation finishes, the deterministic per-ghat results and the LLM advisory (specific interventions, each citing the actual modeled numbers) render below.
+- **Godavari Flood** — discharge presets anchored to the real documented observations, a mobility-mix slider, and per-ghat "time to clear vs. water arrives" bars drawn to scale against each other, ordered worst-first. The slider is the demo: drag it from 0% to 40% elderly and Ramkund flips from a zero-margin plan that appears to work to an 18-minute shortfall marked CANNOT CLEAR IN TIME.
+- **Rumor Desk** — sample rumors (including a Hindi one), the crush-risk assessment, the drafted bilingual counter-message labelled *NOT approved for broadcast*, and the deterministic guardrail's verdict rendered underneath it with each finding's triggering excerpt and explanation.
 - **Calibration** — the two real historical disasters, pass/fail cards, computed live via the pure-code engine (no LLM call on this page at all).
 
 **Architectural note on the live digital twin, for anyone building on this:** `simulate_scenario` was refactored from a per-ghat sequential loop to a minute-major loop specifically to support this — every active ghat's state for a given simulated minute is computed together and handed to `on_tick` as one snapshot, which is what makes the network diagram's nodes update in a genuinely synchronized way rather than one ghat animating fully before the next starts. `on_tick` is a pure observation hook (verified by a dedicated test asserting the final `SimulationReport` is byte-identical with or without it attached) — it cannot influence the simulation, only observe it. The SSE endpoint's tick callback follows the same pattern as BidWright's/ClaimClarity's/GlacierWatch's web UIs: it only pushes a plain dict onto a thread-safe `queue.Queue`, no framework/session object involved, sidestepping the `NoSessionContext` class of bug those projects' Streamlit demos had to work around.
@@ -171,11 +219,22 @@ trinetra calibrate                 # validate the simulator against real disaste
 trinetra ask "Kushavarta ghat kaise pahunche?" --language hindi
 trinetra sos "lost my father near Ramkund" --location Ramkund --incident-type lost_person
 trinetra simulate --name "test" --pilgrims 500000 --duration 180 --ghats ramkund kushavarta
+
+# Compound Godavari hazard: a danger-stage release into a crowded, elderly-heavy Ramkund.
+# Exits non-zero when a ghat cannot be cleared in time.
+trinetra flood-risk --discharge 22000 --occupancy ramkund=8000 panchavati_godavari=5000 --elderly-share 0.4
+
+# Rumor triage. Exits non-zero when the guardrail blocks the drafted counter-message.
+trinetra rumor "Ramkund pe bhagdad mach gayi hai" --location "Ramkund approach" --spreading-fast
 ```
 
 ## Testing
 
-`pytest tests/test_trinetra_*.py` — 37 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, the `on_tick` streaming hook (fires once per minute with every active ghat's synchronized state, never changes the final report), both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, orchestrator wiring, and the FastAPI backend (including draining a live SSE simulation stream to completion) with mocked agents. All pass; see the repo root's full suite (400 tests across all four projects) alongside it.
+`pytest tests/test_trinetra_*.py` — 75 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, the `on_tick` streaming hook (fires once per minute with every active ghat's synchronized state, never changes the final report), both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, orchestrator wiring, and the FastAPI backend (including draining a live SSE simulation stream to completion) with mocked agents.
+
+The two newest modules are tested the same way — deterministically, and adversarially where they are safety-critical. The hydrology tests assert that the two cited Gangapur discharge observations band the way they were actually reported (the release that flooded Ramkund must come back DANGER), that a realistic mobility mix flips the same ghat from feasible to impossible, that results are ordered worst-first rather than alphabetically, that a non-exposed ghat is recorded as considered rather than silently dropped, and that a failed rainfall fetch never reads as zero. The rumor guardrail tests are deliberately hostile: every phrasing of absolute reassurance and every unsafe crowd instruction must be blocked, all violations reported rather than just the first, and — the case that matters most for false positives — naming the official channel to trust ("follow only announcements from Kumbh Rakshak staff") must *not* be mistaken for promising safety.
+
+All pass; see the repo root's full suite (436 tests across all four projects) alongside it.
 
 ## Honest limitations
 
@@ -187,6 +246,9 @@ trinetra simulate --name "test" --pilgrims 500000 --duration 180 --ghats ramkund
 - **Ghat/route capacity figures are Trinetra's own illustrative planning estimates**, not official NTKMA-surveyed numbers — see `trinetra/data/sites.json`'s own citation note. Site *names, locations, and historical incident facts* are real and cited; the numeric capacities are not, and must never be presented to NTKMA as authoritative without their own verification.
 - **Lost-person matching is exact/near-exact, not semantic.** Two genuinely matching descriptions phrased very differently may not surface as a "possible" match — a deliberate, documented trade-off against false reunification matches, not an oversight.
 - **The calibration set is two cases.** Both are real and well-documented, but two data points is not a robust validation suite — a real deployment should calibrate against every documented Kumbh/mass-gathering crowd-crush incident available, not just these two.
+- **Flood lead times and egress rates are Trinetra's own illustrative planning estimates, not official figures.** The Gangapur discharge observations, the ~20,000-cusec danger threshold, and the Ramkund/Goda Ghat submersion in `trinetra/data/godavari_hydrology.json` are real and cited. The **travel-time-to-ghat lead times, the 25-people-per-minute-per-access-point egress rate, and the mobility slowdown factors are not** — they are documented assumptions chosen to be defensible, and every conclusion the module draws inherits them. The *relationship* the tool demonstrates (a realistic elderly-heavy crowd clears far slower than an able-bodied one, and that difference can flip a plan from feasible to impossible) is robust; the specific minute counts are not, and must be replaced with NTKMA's and the irrigation department's own hydrograph and survey data before any operational use.
+- **Dam discharge is entered by hand, not fed live.** There is no public real-time Gangapur release API this project can integrate with. `DamRelease` is a stable contract a real telemetry feed can be wired into unchanged.
+- **The rumor guardrail is pattern-based, and pattern-based means evadable.** It reliably catches the phrasings it knows — and a model can express "everything is fine" in wording no regex anticipates, in any of the nine supported languages. Its patterns are currently English-oriented, so a dangerous *Hindi or Marathi* draft is materially less likely to be caught than the same draft in English. It is a genuine last-line safety net, not a guarantee, and it is explicitly designed to be the *second*-to-last check: a human verifies before anything is broadcast.
 - **Vendor/volunteer/NMC-municipal personas are not built** in this pass — see "Who it's for" above for why and how the architecture extends to them.
 
 ## Deploying to AWS

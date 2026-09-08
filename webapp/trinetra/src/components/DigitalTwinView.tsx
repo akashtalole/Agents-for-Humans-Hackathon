@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { NTKMAAdvisory, SimulationReport, SitesResponse, TickGhatState } from '../types'
 import { createSimulation, streamSimulation } from '../api'
-import { Card, Label, PrimaryButton, RiskBadge, SectionTitle, inputClass } from './ui'
+import { Card, inputClass, Label, PrimaryButton, Prose, RiskBadge, SectionTitle } from './ui'
 import NetworkDiagram from './NetworkDiagram'
 import OccupancyTimeline, { type TimelinePoint } from './OccupancyTimeline'
 
@@ -271,7 +271,7 @@ export default function DigitalTwinView({ sites }: { sites: SitesResponse }) {
             {!advisory && <p className="text-sm text-slate-500">Generating advisory…</p>}
             {advisory && (
               <div className="space-y-4">
-                <p className="text-sm text-slate-300">{advisory.narrative_summary}</p>
+                <Prose className="text-sm text-slate-300">{advisory.narrative_summary}</Prose>
                 <div>
                   <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Top concerns</h3>
                   <ul className="space-y-1 text-xs text-slate-400">
@@ -289,7 +289,7 @@ export default function DigitalTwinView({ sites }: { sites: SitesResponse }) {
                           <div className="mb-0.5 text-xs font-semibold text-saffron-300">
                             {rec.target_name} → {rec.action.replace(/_/g, ' ')} (within {rec.urgency_minutes}m)
                           </div>
-                          <div className="text-xs text-slate-500">{rec.rationale}</div>
+                          <Prose className="text-xs text-slate-500">{rec.rationale}</Prose>
                         </div>
                       ))}
                     </div>

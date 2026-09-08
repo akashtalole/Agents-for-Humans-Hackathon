@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { CommandBrief, SitesResponse } from '../types'
 import { getAdminBrief } from '../api'
-import { Card, Label, PrimaryButton, RiskBadge, SectionTitle, inputClass } from './ui'
+import { Card, inputClass, Label, PrimaryButton, Prose, RiskBadge, SectionTitle } from './ui'
 
 interface SignalInput {
   ghat_id: string
@@ -118,7 +118,7 @@ export default function AdminView({ sites }: { sites: SitesResponse }) {
               <div className="flex items-center justify-between">
                 <RiskBadge level={brief.overall_status} />
               </div>
-              <p className="text-sm text-slate-300">{brief.summary}</p>
+              <Prose className="text-sm text-slate-300">{brief.summary}</Prose>
               <div className="space-y-2">
                 {brief.recommendations.map((rec, i) => (
                   <div key={i} className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
@@ -129,7 +129,7 @@ export default function AdminView({ sites }: { sites: SitesResponse }) {
                     <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-saffron-300">
                       {rec.action.replace(/_/g, ' ')} · within {rec.urgency_minutes}m
                     </div>
-                    <p className="text-xs text-slate-400">{rec.rationale}</p>
+                    <Prose className="text-xs text-slate-400">{rec.rationale}</Prose>
                   </div>
                 ))}
                 {brief.recommendations.length === 0 && (

@@ -1,0 +1,59 @@
+{
+  "_citation_note": "Gangapur Dam's relationship to the Godavari through Nashik, the documented discharge thresholds, and the documented Ramkund/Goda Ghat submersion are REAL and cited below. The flood-wave travel time (dam -> Ramkund) and the per-ghat egress rates used by tools/hydrology.py are Trinetra's own illustrative planning estimates, NOT official figures - Maharashtra's irrigation department and NTKMA hold the real rating curves, gauge readings, and travel-time data, and a real deployment MUST replace these before any of this is used for an actual evacuation decision. See TRINETRA.md's honest-limitations section.",
+
+  "river": "Godavari",
+  "upstream_dam": {
+    "name": "Gangapur Dam",
+    "relationship": "Impounds the Godavari upstream of Nashik city. Water released from Gangapur flows down the Godavari through Nashik, past the Panchavati riverfront ghats including Ramkund - the principal Shahi Snan bathing ghat for the Nashik Kumbh.",
+    "sources": [
+      "Deccan Chronicle, 'Nashik Rains: Godavari Crosses Danger Mark After Gangapur Dam Release'",
+      "India TV News (Aug 4, 2024), 'Nashik: Temples flooded after water released from Gangapur dam amid incessant rains'",
+      "Free Press Journal, 'Nashik: Gangapur Dam Discharge Increased Again As Catchment Rain Continues; Godavari Level Remains High'"
+    ]
+  },
+
+  "documented_discharge_observations": [
+    {
+      "discharge_cusecs": 8160,
+      "observed_effect": "A reported sustained release rate during a monsoon high-flow period; Godavari level remained high through Nashik.",
+      "source": "Free Press Journal coverage of Gangapur Dam discharge during catchment rainfall."
+    },
+    {
+      "discharge_cusecs": 20000,
+      "observed_effect": "Release rates above roughly this level drove the Godavari above its danger mark at Nashik. Small temples at Ramkund and Goda Ghat were submerged, the Dutondya Maruti idol went completely underwater, waist-deep water accumulated near the Dutonda Maruti temple, security was deployed to keep devotees out, and the Ramkund area was closed for two days.",
+      "source": "Deccan Chronicle and India TV News coverage (see upstream_dam.sources)."
+    }
+  ],
+
+  "stage_thresholds_cusecs": {
+    "_note": "Trinetra's own banding, derived from the two documented observations above. The 20,000 cusecs 'danger' boundary is anchored to real reporting; the intermediate 'rising'/'warning' boundaries are interpolated planning estimates, not published thresholds.",
+    "rising": 5000,
+    "warning": 12000,
+    "danger": 20000
+  },
+
+  "flood_lead_time_minutes": {
+    "_note": "ILLUSTRATIVE PLANNING ESTIMATE ONLY - not a measured or published travel time. How long after a release at Gangapur Dam the resulting rise is assumed to reach the Panchavati/Ramkund riverfront. Shorter at higher discharge (a larger release travels faster). A real deployment must replace these with the irrigation department's own observed travel times.",
+    "rising": 150,
+    "warning": 110,
+    "danger": 80
+  },
+
+  "flood_exposed_ghats": {
+    "_note": "Which bundled sites sit on the Godavari riverfront and are therefore exposed to a dam-release rise. Ramkund and the Panchavati corridor are documented as having actually flooded (see documented_discharge_observations). Kushavarta is at Trimbakeshwar, on the Godavari's symbolic origin well upstream of Gangapur Dam's release path, and is NOT treated as exposed to a Gangapur release.",
+    "exposed": ["ramkund", "panchavati_godavari", "kalaram_marg"],
+    "not_exposed": ["kushavarta"]
+  },
+
+  "egress_rate_per_access_point_per_min": {
+    "_note": "ILLUSTRATIVE PLANNING ESTIMATE. People per minute per access point during an orderly staged evacuation - deliberately lower than tools/simulator.py's routine-flow throughput (35/min), because evacuating a dense, wet, partly-panicked riverfront crowd is slower than normal circulation, not faster.",
+    "value": 25
+  },
+
+  "mobility_slowdown_factors": {
+    "_note": "Multipliers applied to the effective egress rate based on the share of the crowd that moves slowly. Kumbh crowds skew heavily toward elderly pilgrims - a ghat full of elderly and mobility-limited devotees clears far slower than raw access-point arithmetic suggests, which is exactly the failure mode a naive evacuation plan misses. These multipliers are Trinetra's own planning estimates, not measured egress research.",
+    "standard": 1.0,
+    "elderly_or_mobility_limited": 0.55,
+    "with_small_children": 0.75
+  }
+}

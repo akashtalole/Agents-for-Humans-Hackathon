@@ -186,6 +186,103 @@ def test_simulation_lifecycle_real_engine_fake_advisor(client, monkeypatch):
     assert body["advisory"]["narrative_summary"] == "fake narrative"
 
 
+def _fake_hydrology_advisory(*args, **kwargs):
+    from trinetra.models import HydrologyAdvisory
+
+    return HydrologyAdvisory(
+        headline="fake headline",
+        ghats_to_clear_first=["Ramkund"],
+        recommended_actions=[],
+        narrative_summary="fake narrative",
+    )
+
+
+def _fake_rumor_assessment(*args, **kwargs):
+    from trinetra.models import RumorAssessment
+
+    return RumorAssessment(
+        crush_risk=RiskLevel.CRITICAL,
+        category="false stampede report",
+        why_dangerous="fake reason",
+        verify_before_broadcast=["confirm with the ghat commander"],
+        counter_message="Keep moving at a walking pace. Do not push.",
+        counter_message_local="चलते रहें। धक्का न दें।",
+        recommended_channels=["ghat loudspeakers"],
+    )
+
+
+def _fake_unsafe_rumor_assessment(*args, **kwargs):
+    from trinetra.models import RumorAssessment
+
+    return RumorAssessment(
+        crush_risk=RiskLevel.CRITICAL,
+        category="false stampede report",
+        why_dangerous="fake reason",
+        verify_before_broadcast=["confirm with the ghat commander"],
+        counter_message="There is no danger. Everything is fine.",
+        counter_message_local="कोई खतरा नहीं है।",
+        recommended_channels=["ghat loudspeakers"],
+    )
+
+
+def test_flood_risk_uses_real_engine_and_fake_advisor(client, monkeypatch):
+    """The hydrology engine is real/deterministic here - only the LLM
+    advisor and the live rainfall fetch are stubbed."""
+    monkeypatch.setattr(api_module, "advise_on_compound_risk", _fake_hydrology_advisory)
+    monkeypatch.setattr(api_module, "fetch_recent_rainfall_mm", lambda *a, **k: (12.5, "stubbed"))
+
+    resp = client.post(
+        "/api/flood-risk",
+        json={"discharge_cusecs": 22000, "occupancy": {"ramkund": 8000}, "elderly_share": 0.4},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assessment"]["river_stage"] == "danger"
+    assert body["assessment"]["overall_risk"] == "critical"
+    # Ramkund at 8,000 with an elderly-heavy crowd cannot clear inside the
+    # danger-stage lead time - the whole point of the feature.
+    assert body["assessment"]["ghat_feasibility"][0]["margin_minutes"] < 0
+    assert body["advisory"]["narrative_summary"] == "fake narrative"
+
+
+def test_flood_risk_rejects_unknown_ghat(client):
+    resp = client.post(
+        "/api/flood-risk",
+        json={"discharge_cusecs": 10000, "occupancy": {"not_a_real_ghat": 100}},
+    )
+    assert resp.status_code == 400
+
+
+def test_flood_risk_requires_discharge_and_occupancy(client):
+    assert client.post("/api/flood-risk", json={"occupancy": {"ramkund": 10}}).status_code == 400
+    assert client.post("/api/flood-risk", json={"discharge_cusecs": 10000}).status_code == 400
+
+
+def test_rumor_endpoint_runs_real_guardrail_over_the_draft(client, monkeypatch):
+    monkeypatch.setattr(api_module, "assess_rumor", _fake_rumor_assessment)
+    resp = client.post("/api/rumor", json={"text": "people say there was a crush", "location": "Ramkund"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["assessment"]["crush_risk"] == "critical"
+    assert body["guardrail"]["passed"] is True
+
+
+def test_rumor_endpoint_blocks_a_falsely_reassuring_draft(client, monkeypatch):
+    """Even when the model drafts a dangerous message, the deterministic
+    guardrail must catch it before it reaches the caller as broadcast-ready."""
+    monkeypatch.setattr(api_module, "assess_rumor", _fake_unsafe_rumor_assessment)
+    resp = client.post("/api/rumor", json={"text": "people say there was a crush", "location": "Ramkund"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["guardrail"]["passed"] is False
+    assert any(f["rule"] == "absolute_reassurance" for f in body["guardrail"]["findings"])
+
+
+def test_rumor_requires_text_and_location(client):
+    assert client.post("/api/rumor", json={"text": "", "location": "Ramkund"}).status_code == 400
+    assert client.post("/api/rumor", json={"text": "something", "location": ""}).status_code == 400
+
+
 def test_simulation_invalid_scenario_rejected(client):
     resp = client.post("/api/simulations", json={"name": "bad", "total_pilgrims": 1000})
     assert resp.status_code == 400

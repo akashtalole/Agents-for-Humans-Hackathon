@@ -111,6 +111,70 @@ export interface SimDoneEvent {
 
 export type SimEvent = SimTickEvent | SimReportEvent | SimAdvisoryEvent | SimErrorEvent | SimDoneEvent
 
+export type RiverStage = 'normal' | 'rising' | 'warning' | 'danger'
+
+export interface EvacuationFeasibility {
+  ghat_id: string
+  ghat_name: string
+  occupancy: number
+  effective_egress_per_min: number
+  clearance_minutes: number
+  lead_time_minutes: number
+  margin_minutes: number
+  feasible: boolean
+  risk: RiskLevel
+}
+
+export interface CompoundRiskAssessment {
+  discharge_cusecs: number
+  river_stage: RiverStage
+  lead_time_minutes: number
+  recent_rainfall_mm: number | null
+  rainfall_note: string
+  ghat_feasibility: EvacuationFeasibility[]
+  overall_risk: RiskLevel
+  findings: string[]
+}
+
+export interface HydrologyAdvisory {
+  headline: string
+  ghats_to_clear_first: string[]
+  recommended_actions: InterventionRecommendation[]
+  narrative_summary: string
+}
+
+export interface FloodRiskResponse {
+  assessment: CompoundRiskAssessment
+  advisory: HydrologyAdvisory
+}
+
+export interface RumorAssessment {
+  crush_risk: RiskLevel
+  category: string
+  why_dangerous: string
+  verify_before_broadcast: string[]
+  counter_message: string
+  counter_message_local: string
+  recommended_channels: string[]
+}
+
+export interface RumorGuardrailFinding {
+  rule: string
+  excerpt: string
+  explanation: string
+}
+
+export interface RumorGuardrailResult {
+  passed: boolean
+  findings: RumorGuardrailFinding[]
+  summary: string
+}
+
+export interface RumorResponse {
+  assessment: RumorAssessment
+  guardrail: RumorGuardrailResult
+}
+
 export interface CalibrationResult {
   case_id: string
   case_name: string

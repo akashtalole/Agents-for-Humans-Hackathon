@@ -297,3 +297,146 @@ class CalibrationResult(BaseModel):
     simulated_peak_risk: RiskLevel
     correctly_flagged: bool = Field(description="True if simulated_peak_risk is CRITICAL, matching the real outcome")
     note: str
+
+
+# --------------------------------------------------------------------------
+# Godavari compound risk: a dam release into a crowded riverfront ghat
+#
+# The hazard nobody models: Ramkund and the Panchavati ghats have really
+# gone underwater when Gangapur Dam released heavily (see
+# trinetra/data/godavari_hydrology.json's citations). During Kumbh those
+# same ghats hold tens of thousands of people. The question that decides
+# whether that is an inconvenience or a disaster is not "will the river
+# rise" - it is "can this ghat be cleared before the water arrives", and
+# that depends on who is standing on it.
+# --------------------------------------------------------------------------
+
+
+class RiverStage(str, Enum):
+    """Ordered normal < rising < warning < danger, same "more cautious wins"
+    ordering convention as RiskLevel."""
+
+    NORMAL = "normal"
+    RISING = "rising"
+    WARNING = "warning"
+    DANGER = "danger"
+
+
+class MobilityProfile(str, Enum):
+    """Who is actually standing on the ghat. Kumbh crowds skew heavily
+    elderly, and an evacuation plan built on able-bodied walking speeds is
+    the kind of plan that looks fine on paper and fails in the water."""
+
+    STANDARD = "standard"
+    ELDERLY_OR_MOBILITY_LIMITED = "elderly_or_mobility_limited"
+    WITH_SMALL_CHILDREN = "with_small_children"
+
+
+class DamRelease(BaseModel):
+    """A reported/planned release from Gangapur Dam. In this build these are
+    operator-supplied or synthetic - Trinetra has no live feed from the
+    irrigation department's gauge telemetry."""
+
+    discharge_cusecs: int
+    reported_at: datetime = Field(default_factory=datetime.utcnow)
+    note: str = ""
+
+
+class EvacuationFeasibility(BaseModel):
+    """The core deterministic judgment: can this ghat be cleared in time?
+
+    clearance_minutes is computed from occupancy and a mobility-adjusted
+    egress rate; lead_time_minutes is how long the water is estimated to
+    take to arrive. margin_minutes is the difference - negative means the
+    water arrives before the ghat is empty."""
+
+    ghat_id: str
+    ghat_name: str
+    occupancy: int
+    effective_egress_per_min: float = Field(description="Access-point capacity after mobility slowdown")
+    clearance_minutes: float
+    lead_time_minutes: int
+    margin_minutes: float
+    feasible: bool = Field(description="True if the ghat clears with a safety margin above the required threshold")
+    risk: RiskLevel
+
+
+class CompoundRiskAssessment(BaseModel):
+    """River stage plus per-ghat evacuation feasibility - the deterministic
+    artifact the LLM advisor interprets but never recomputes."""
+
+    discharge_cusecs: int
+    river_stage: RiverStage
+    lead_time_minutes: int
+    recent_rainfall_mm: float | None = Field(
+        default=None, description="Live observed rainfall near Nashik, if it was fetched successfully"
+    )
+    rainfall_note: str = Field(default="", description="Honest note if live rainfall could not be fetched")
+    ghat_feasibility: list[EvacuationFeasibility]
+    overall_risk: RiskLevel
+    findings: list[str] = Field(default_factory=list)
+
+
+class HydrologyAdvisory(BaseModel):
+    """The LLM advisor's read of a CompoundRiskAssessment - recommendations
+    only; every number it cites must come from the assessment it was given."""
+
+    headline: str = Field(description="The single most important fact, for a control-room operator with 30 seconds")
+    ghats_to_clear_first: list[str] = Field(description="Ghat names in the order they should be cleared, most urgent first")
+    recommended_actions: list[InterventionRecommendation]
+    narrative_summary: str
+
+
+# --------------------------------------------------------------------------
+# Rumor triage: the crush trigger that isn't a barricade
+#
+# 18 people died at New Delhi railway station when a fainting incident
+# spawned "rumours of a stampede-like situation" among Kumbh travellers.
+# A rumor moving through a dense crowd is a crowd-safety event, and the
+# counter-message is a crowd-safety intervention - which is exactly why
+# broadcasting a false reassurance is its own lethal failure mode.
+# --------------------------------------------------------------------------
+
+
+class RumorReport(BaseModel):
+    text: str = Field(description="What is being said in the crowd, as reported by field staff")
+    location: str
+    reported_at: datetime = Field(default_factory=datetime.utcnow)
+    reported_by: str = Field(default="field staff", description="Who reported it, e.g. 'Kumbh Rakshak post 4'")
+    spreading_fast: bool = Field(default=False, description="Field staff's read on whether it's propagating")
+
+
+class RumorAssessment(BaseModel):
+    """Kumbh Rakshak's structured read of a rumor plus a DRAFT counter-message.
+
+    The counter-message is never auto-broadcast - see
+    tools/rumor_guardrail.py and TRINETRA.md. verify_before_broadcast is the
+    load-bearing field: it names what a human must actually confirm before
+    the message goes out, because a broadcast that falsely reassures a crowd
+    during a real emergency is worse than saying nothing."""
+
+    crush_risk: RiskLevel = Field(description="How likely this rumor is to trigger crowd movement that injures people")
+    category: str = Field(description="e.g. 'false stampede report', 'false closure report', 'medical panic'")
+    why_dangerous: str
+    verify_before_broadcast: list[str] = Field(
+        description="Specific facts a human official must confirm before any counter-message is broadcast"
+    )
+    counter_message: str = Field(description="DRAFT plain-language message for loudspeaker/SMS, in English")
+    counter_message_local: str = Field(description="The same draft message in Hindi or Marathi")
+    recommended_channels: list[str] = Field(description="e.g. 'ghat loudspeakers', 'SMS broadcast', 'Kumbh Rakshak posts'")
+
+
+class RumorGuardrailFinding(BaseModel):
+    rule: str
+    excerpt: str
+    explanation: str
+
+
+class RumorGuardrailResult(BaseModel):
+    """Pure-code scan of a drafted counter-message. Mirrors BidWright's
+    overclaim guardrail: a deterministic check that a drafted message does
+    not make an absolute promise the drafter had no basis to make."""
+
+    passed: bool
+    findings: list[RumorGuardrailFinding] = Field(default_factory=list)
+    summary: str
