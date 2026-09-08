@@ -1,0 +1,67 @@
+{
+  "_citation_note": "Site names, locations, and the historical_note fields are real and cited below. safe_capacity, access_points, narrowest_approach_m, and route capacity_per_minute are Trinetra's own illustrative planning estimates for demo/simulation purposes ONLY - they are NOT official NTKMA-published figures. A real deployment must replace every numeric field here with NTKMA's own surveyed capacity assessments before being used for actual crowd-control decisions. See TRINETRA.md's honest-limitations section.",
+  "ghats": [
+    {
+      "id": "ramkund",
+      "name": "Ramkund",
+      "location": "Panchavati, Nashik (Godavari river)",
+      "safe_capacity": 8000,
+      "access_points": 4,
+      "narrowest_approach_m": 3.5,
+      "historical_note": "Nashik's principal Shahi Snan bathing ghat, believed associated with Lord Rama's exile. Immediately adjacent to the Kalaram Mandir corridor - see kalaram_marg below for the 2003 stampede site."
+    },
+    {
+      "id": "kalaram_marg",
+      "name": "Kalaram Mandir Marg (approach lane)",
+      "location": "Panchavati, Nashik - the lane connecting Kalaram Mandir to Ramkund",
+      "safe_capacity": 1500,
+      "access_points": 2,
+      "narrowest_approach_m": 1.8,
+      "historical_note": "Site of the August 27, 2003 Nashik Kumbh stampede: a barricade at a gully near Kalaram Mandir gave way under crowd pressure as sadhus threw coins to devotees, killing 39 and injuring roughly 150. Roads here are documented as narrower than 6 feet (~1.8m) at several points. Source: Al Jazeera, 'Indian stampede leaves 39 dead' (2003); Tribune India coverage, Aug 28, 2003."
+    },
+    {
+      "id": "kushavarta",
+      "name": "Kushavarta Ghat",
+      "location": "Trimbakeshwar",
+      "safe_capacity": 6000,
+      "access_points": 3,
+      "narrowest_approach_m": 4.0,
+      "historical_note": "The symbolic origin point of the Godavari river; the primary Shahi Snan ghat at Trimbakeshwar, directly adjacent to the Trimbakeshwar Jyotirlinga temple."
+    },
+    {
+      "id": "panchavati_godavari",
+      "name": "Panchavati Godavari Ghat corridor",
+      "location": "Panchavati, Nashik (Godavari riverfront, downstream of Ramkund)",
+      "safe_capacity": 5000,
+      "access_points": 5,
+      "narrowest_approach_m": 3.0,
+      "historical_note": "Secondary riverfront bathing corridor used to relieve Ramkund overflow during peak Shahi Snan windows."
+    }
+  ],
+  "routes": [
+    {
+      "id": "route_kalaram_ramkund",
+      "name": "Kalaram Mandir Marg -> Ramkund",
+      "connects": ["kalaram_marg", "ramkund"],
+      "width_m": 1.8,
+      "one_way": false,
+      "capacity_per_minute": 60
+    },
+    {
+      "id": "route_ramkund_panchavati",
+      "name": "Ramkund -> Panchavati Godavari corridor",
+      "connects": ["ramkund", "panchavati_godavari"],
+      "width_m": 4.5,
+      "one_way": false,
+      "capacity_per_minute": 220
+    },
+    {
+      "id": "route_trimbak_approach",
+      "name": "Trimbakeshwar town -> Kushavarta Ghat",
+      "connects": ["kushavarta"],
+      "width_m": 5.0,
+      "one_way": false,
+      "capacity_per_minute": 260
+    }
+  ]
+}
