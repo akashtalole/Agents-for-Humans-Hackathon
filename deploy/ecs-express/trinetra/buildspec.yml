@@ -1,0 +1,39 @@
+# AWS CodeBuild buildspec for Trinetra's web UI image. Referenced by the
+# CodeBuild project setup.sh creates (buildspec path, not inline) - kept as
+# a real file here so it's readable/reviewable/versioned like everything
+# else in this repo, not hidden inside a shell-escaped string.
+#
+# What this does, and does NOT do: it builds Dockerfile.trinetra.webapp and
+# pushes the image to ECR. Nothing here touches ANTHROPIC_API_KEY or any
+# model credential - the built image has none baked in. Model credentials
+# are injected only when setup.sh creates/updates the ECS Express Gateway
+# Service, a separate step from this build, exactly like the AgentCore
+# CodeBuild path in deploy/cloudshell/ never sees a key either. See that
+# directory's README.md for the same principle stated for the AgentCore
+# deployment path.
+#
+# ECR_REPO_URI and AWS_ACCOUNT_ID are supplied as environment variables on
+# the CodeBuild project (see setup.sh) - not hardcoded here, so this file
+# doesn't need editing if the ECR repo name or account ever changes.
+
+version: 0.2
+
+env:
+  variables:
+    IMAGE_TAG: "latest"
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+  build:
+    commands:
+      - echo "Building Trinetra web UI image from Dockerfile.trinetra.webapp..."
+      - docker build -f Dockerfile.trinetra.webapp -t "${ECR_REPO_URI}:${IMAGE_TAG}" .
+  post_build:
+    commands:
+      - echo "Pushing ${ECR_REPO_URI}:${IMAGE_TAG} to ECR..."
+      - docker push "${ECR_REPO_URI}:${IMAGE_TAG}"
+      - echo "Build completed on $(date) - pushed ${ECR_REPO_URI}:${IMAGE_TAG}"

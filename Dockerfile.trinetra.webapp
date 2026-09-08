@@ -1,0 +1,42 @@
+# Trinetra web UI: FastAPI backend (trinetra/api.py) + React frontend
+# (webapp/trinetra), served from a single container so no CORS setup is
+# needed in production. Multi-stage: build the frontend with Node, then run
+# it from a lean Python image alongside the API.
+#
+# Built by AWS CodeBuild in deploy/ecs-express/trinetra/setup.sh (see
+# buildspec.yml in that directory) - not built locally. This keeps the whole
+# deploy path runnable from AWS CloudShell, which has no local Docker
+# daemon, consistent with deploy/cloudshell/'s AgentCore path. CodeBuild
+# never sees ANTHROPIC_API_KEY or any model credential - the built image
+# has none baked in; the key is injected only at ECS Express Gateway
+# Service creation/update time as a runtime environment variable, a
+# separate step from this build.
+#
+# Local build (optional, for testing without CodeBuild):
+#   docker build -f Dockerfile.trinetra.webapp -t trinetra-webui .
+#   docker run -p 8000:8000 -e ANTHROPIC_API_KEY=... trinetra-webui
+
+# --- stage 1: build the React frontend --------------------------------
+FROM node:20-slim AS frontend-build
+WORKDIR /app/webapp/trinetra
+COPY webapp/trinetra/package.json webapp/trinetra/package-lock.json ./
+RUN npm ci
+COPY webapp/trinetra/ ./
+RUN npm run build
+
+# --- stage 2: the API server, with the built frontend bundled in ------
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+# Only what's needed to install the package and run the API - keeps the
+# image lean and the build cache stable across unrelated source edits.
+COPY pyproject.toml README.md ./
+COPY trinetra/ ./trinetra/
+COPY server_trinetra.py ./
+
+RUN pip install --no-cache-dir -e ".[api]"
+
+COPY --from=frontend-build /app/webapp/trinetra/dist ./webapp/trinetra/dist
+
+EXPOSE 8000
+CMD ["python", "server_trinetra.py"]

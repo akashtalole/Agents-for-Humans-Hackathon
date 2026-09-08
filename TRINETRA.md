@@ -191,4 +191,9 @@ trinetra simulate --name "test" --pilgrims 500000 --duration 180 --ghats ramkund
 
 ## Deploying to AWS
 
-See `deploy/trinetra/README.md` for the CloudShell/AgentCore deployment path (`agentcore_app_trinetra.py`), following the same pattern as BidWright's and ClaimClarity's `deploy/cloudshell/` scripts. **Honest gap:** that path deploys the action-routed AgentCore entrypoint, not the FastAPI + React web UI — there is no container/ECS deployment for `trinetra/api.py` + `webapp/trinetra/` yet, unlike GlacierWatch's `Dockerfile.glacierwatch.webapp` + ECS Express path. Building that is the natural next AWS-deployment task: a `Dockerfile.trinetra.webapp` following GlacierWatch's exactly, since `server_trinetra.py` already serves both the API and the built frontend from one process.
+Two independent paths, deploying two different things:
+
+- **[`deploy/trinetra/README.md`](deploy/trinetra/README.md)** — Amazon Bedrock AgentCore Runtime, deploying `agentcore_app_trinetra.py` (the action-routed `ask`/`sos`/`simulate`/`calibrate` JSON entrypoint), following the same pattern as BidWright's/ClaimClarity's `deploy/cloudshell/` scripts.
+- **[`deploy/ecs-express/trinetra/README.md`](deploy/ecs-express/trinetra/README.md)** — Amazon ECS Express Mode, deploying the actual web dashboard (`trinetra/api.py` + the built `webapp/trinetra/` React app) behind a public HTTPS URL. Unlike GlacierWatch's ECS Express path (which builds the image locally with `docker build`), this one builds on **AWS CodeBuild** (`buildspec.yml` in that directory), so it's runnable entirely from AWS CloudShell with no local Docker — closing the exact gap GlacierWatch's own ECS Express README names as a "reasonable future improvement."
+
+Pick the ECS Express path if you want the dashboard (digital twin, pilgrim chat, admin brief) reachable at a URL — that's almost certainly what you want for a demo or a pitch. Pick the AgentCore path if you specifically need the headless action API instead. Both, like every other AWS deployment path in this repo, have not been exercised against a live AWS account — read the relevant README before running either.
