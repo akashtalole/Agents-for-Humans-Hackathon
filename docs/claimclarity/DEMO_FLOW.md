@@ -4,6 +4,11 @@ A recording runbook for the submission video. Pairs with
 `demo_video_ssml.xml` — section numbers below match the SSML's section
 comments.
 
+See `JUDGING_CRITERIA.md` for the five official judging criteria mapped
+one-to-one to a specific screenshot and script line — useful both as a
+sanity check that this flow's beats actually earn points on every
+criterion, and as a standalone judge-facing pitch sheet.
+
 **Target length: ~4:15–4:30** at a natural narration pace (measured from
 the actual SSML word count + break tags below). If you want it closer to
 Devpost's commonly-recommended ~3:30: wrap the SSML body in

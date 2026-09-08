@@ -4,17 +4,20 @@ A recording runbook for the submission video. Pairs with
 `demo_video_ssml.xml` — section numbers below match the SSML's section
 comments.
 
+See `JUDGING_CRITERIA.md` for the five official judging criteria mapped
+one-to-one to a specific screenshot and script line — useful both as a
+sanity check that this flow's beats actually earn points on every
+criterion, and as a standalone judge-facing pitch sheet.
+
 **Target length: ~5:20–5:40** at a natural narration pace (measured from
-the actual SSML word count + break tags below) — the longest of the three,
-on purpose: the hook (a real, named disaster, with real casualty numbers)
-needs room to land honestly and shouldn't be rushed, and this project
-carries the most sections. If you want it tighter (closer to Devpost's
-commonly-recommended ~3:30-4:00): wrap the SSML body in
-`<prosody rate="115%">`, or cut the Community Alert Bulletin beat from
-section 4 to the "more time" list — the disclaimer banner, live tool
-calls, and Weekly Watchlist result are the load-bearing beats; everything
-else can flex. Everything cut beyond the core flow below is listed under
-"If you have more time."
+the actual SSML word count + break tags below) — **this exceeds the
+actual Devpost rules' hard 5-minute video cap** (confirmed at
+https://agentsforhumans.devpost.com/rules, not a soft guideline). Trim
+before recording: wrap the SSML body in `<prosody rate="115%">` (buys
+back ~45s on its own), and cut the Community Alert Bulletin beat from
+section 4 to the "more time" list below — the disclaimer banner, live tool
+calls, and Weekly Watchlist result are the load-bearing beats worth
+keeping full-length; everything else can flex or move to "more time."
 
 ## What you need running before you hit record
 

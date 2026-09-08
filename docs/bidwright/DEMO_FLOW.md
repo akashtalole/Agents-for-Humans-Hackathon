@@ -6,6 +6,11 @@ comments, so you can generate the narration audio first (see "Generating
 the audio" below) and then screen-record against it, or record screen
 first and time-stretch narration to match.
 
+See `JUDGING_CRITERIA.md` for the five official judging criteria mapped
+one-to-one to a specific screenshot and script line — useful both as a
+sanity check that this flow's beats actually earn points on every
+criterion, and as a standalone judge-facing pitch sheet.
+
 **Target length: ~4:00–4:15** at a natural narration pace (measured from
 the actual SSML word count + break tags below, not a guess). Devpost demo
 videos are generally read fastest by judges under ~3.5 minutes, so if you
