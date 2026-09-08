@@ -96,6 +96,41 @@ def test_unknown_ghat_id_raises():
         pass
 
 
+def test_on_tick_fires_once_per_minute_with_all_active_ghats():
+    """The digital twin's live view depends on ticks being synchronized
+    across all active ghats, not one ghat's full timeline followed by the
+    next - see simulate_scenario's docstring."""
+    ghats, routes = load_sites()
+    scenario = SimulationScenario(
+        name="tick test", description="test", total_pilgrims=100000,
+        duration_minutes=30, peak_inflow_multiplier=2.0,
+        active_ghat_ids=["ramkund", "kushavarta"],
+    )
+    ticks_seen: list[tuple[int, set[str]]] = []
+
+    def on_tick(minute, snapshot):
+        ticks_seen.append((minute, set(snapshot.keys())))
+
+    simulate_scenario(scenario, ghats, routes, on_tick=on_tick)
+
+    assert len(ticks_seen) == 30
+    assert [m for m, _ in ticks_seen] == list(range(30))
+    for _, ghat_ids in ticks_seen:
+        assert ghat_ids == {"ramkund", "kushavarta"}
+
+
+def test_on_tick_does_not_change_the_final_report():
+    ghats, routes = load_sites()
+    scenario = SimulationScenario(
+        name="parity test", description="test", total_pilgrims=500000,
+        duration_minutes=60, peak_inflow_multiplier=2.5,
+        active_ghat_ids=["kalaram_marg", "ramkund"],
+    )
+    report_without_hook = simulate_scenario(scenario, ghats, routes)
+    report_with_hook = simulate_scenario(scenario, ghats, routes, on_tick=lambda *_: None)
+    assert report_without_hook == report_with_hook
+
+
 def test_calibration_cases_both_correctly_flag_critical():
     """The two bundled real historical incidents (Nashik 2003, Prayagraj
     2025) must both come back CRITICAL - if this regresses, the simulator's

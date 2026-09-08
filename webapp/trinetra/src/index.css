@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #05070d;
+}
+
+/* Subtle animated grid backdrop for the command-center feel - pure CSS,
+   no image assets, respects prefers-reduced-motion. */
+.trinetra-grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .trinetra-fade-in {
+    animation: trinetraFadeIn 0.4s ease-out both;
+  }
+}
+
+@keyframes trinetraFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.trinetra-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.trinetra-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.trinetra-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}

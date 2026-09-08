@@ -137,6 +137,28 @@ The underlying agent judgment is generated **once**, regardless of channel — a
 
 Same discipline as BidWright/ClaimClarity/GlacierWatch elsewhere in this repo: every agent hand-off is a validated Pydantic model (`trinetra/models.py`), deterministic renderers (`trinetra/rendering.py`) — never an LLM — produce the file a human actually reads, and the model-provider selection (`trinetra/config.py`) supports both direct Anthropic and Amazon Bedrock.
 
+## Web UI
+
+A FastAPI backend (`trinetra/api.py`) and a React + TypeScript + Tailwind CSS dashboard (`webapp/trinetra/`), served from one process — a genuine command-center interface, not just the CLI. Same trust hierarchy as everywhere else in this repo: the deterministic `SimulationReport` (and its per-ghat figures) is the authoritative result of a simulation, and the LLM advisor's narrative is presented as additive interpretation, never as a replacement for the numbers.
+
+```bash
+pip install -e ".[api]"
+cd webapp/trinetra && npm install && npm run build && cd ../..
+python3 server_trinetra.py          # -> http://localhost:8000
+```
+
+**The four views**, one per pillar plus calibration:
+
+- **Overview** — live KPI cards (ghats monitored, routes mapped, narrowest approach, calibration pass rate) computed from the real bundled data and a live `/api/calibration` call, not hardcoded numbers.
+- **Yatri Netra** — a chat-style pilgrim assistant with a language picker (all nine supported languages), sample queries, and a highlighted emergency-escalation banner. Verified live: the crowd-crush sample query correctly triggered `escalate_to_sos`, gave sound crush-safety guidance (stay upright, don't push, shout for help), and cited the real 1.8m Kalaram Marg lane width from the bundled site data.
+- **Prashasan Netra** — sliders for each ghat's current occupancy/inflow/outflow feeding a live `/api/admin/brief` call, rendering Prashasan Command's per-ghat recommendations with risk badges and urgency windows.
+- **Bhavishya Netra — the flagship digital twin.** A scenario builder (with one-click presets for the two calibration disasters plus a routine day and a hypothetical Mauni Amavasya-scale peak) drives a **live-animated network diagram**: ghat nodes sized and colored by real-time occupancy, pulsing when critical, route edges highlighted amber when they're the binding bottleneck — all built from `trinetra/tools/simulator.py`'s `on_tick` callback streamed over Server-Sent Events (`/api/simulations/{id}/events`), one synchronized snapshot of every active ghat per simulated minute, not per-ghat sequential playback. An occupancy timeline chart accumulates alongside it in real time. When the simulation finishes, the deterministic per-ghat results and the LLM advisory (specific interventions, each citing the actual modeled numbers) render below.
+- **Calibration** — the two real historical disasters, pass/fail cards, computed live via the pure-code engine (no LLM call on this page at all).
+
+**Architectural note on the live digital twin, for anyone building on this:** `simulate_scenario` was refactored from a per-ghat sequential loop to a minute-major loop specifically to support this — every active ghat's state for a given simulated minute is computed together and handed to `on_tick` as one snapshot, which is what makes the network diagram's nodes update in a genuinely synchronized way rather than one ghat animating fully before the next starts. `on_tick` is a pure observation hook (verified by a dedicated test asserting the final `SimulationReport` is byte-identical with or without it attached) — it cannot influence the simulation, only observe it. The SSE endpoint's tick callback follows the same pattern as BidWright's/ClaimClarity's/GlacierWatch's web UIs: it only pushes a plain dict onto a thread-safe `queue.Queue`, no framework/session object involved, sidestepping the `NoSessionContext` class of bug those projects' Streamlit demos had to work around.
+
+**Verified live**, not just built: every screenshot-worthy claim above was checked against a real running instance — the emergency escalation, the admin brief citing actual slider values back in its rationale, and the Nashik-2003-replay preset actually animating Kalaram Mandir Marg and Ramkund into critical (red, pulsing) within the first few simulated minutes, exactly matching the calibration case's real-world outcome.
+
 ## Quickstart
 
 ```bash
@@ -153,11 +175,13 @@ trinetra simulate --name "test" --pilgrims 500000 --duration 180 --ghats ramkund
 
 ## Testing
 
-`pytest tests/test_trinetra_*.py` — 24 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, and orchestrator wiring with mocked agents. All pass; see the repo root's full suite for the other three projects alongside it.
+`pytest tests/test_trinetra_*.py` — 37 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, the `on_tick` streaming hook (fires once per minute with every active ghat's synchronized state, never changes the final report), both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, orchestrator wiring, and the FastAPI backend (including draining a live SSE simulation stream to completion) with mocked agents. All pass; see the repo root's full suite (400 tests across all four projects) alongside it.
 
 ## Honest limitations
 
 - **Crowd signals are synthetic, not live.** No public NTKMA sensor/CCTV API exists for this project to integrate with. `CrowdSignal` is a stable contract a real feed can be wired into without changing Prashasan Command's logic.
+- **The NTKMA advisory can name a ghat that isn't in the bundled data.** Verified live: on one run, the advisory's recommended-interventions text suggested diverting crowds to "Naroshankar" and "Ganga Ghat" — real Nashik riverside sites, but not ones `trinetra/data/sites.json` actually documents capacity or geography for. The advisor agent is instructed to reason only from the `SimulationReport` it's given (which never names alternate sites), but nothing currently stops it from drawing on general knowledge for a *suggestion* the way it's prevented from inventing a *number*. A real deployment should either expand `sites.json` to cover every plausible diversion target or add a guardrail check (the same pattern BidWright's `check_proposal_guardrail` uses) that flags any ghat name in the advisory text not present in the bundled data.
+- **The SSE simulation stream has no reconnect/resume.** If a browser tab drops mid-simulation, the frontend does not currently re-attach to the in-progress job and replay missed ticks — refreshing starts over rather than resuming. `GET /api/simulations/{id}` does return the final report/advisory once the job completes server-side regardless, so no result is lost, but the live animation itself isn't recoverable mid-run.
 - **SMS/USSD delivery is formatted, not sent.** See the network-resilience section above — no telecom gateway integration exists or is claimed.
 - **Simulation demand-distribution is a simplifying assumption.** Total pilgrim demand is split evenly across a scenario's active ghats; a real deployment should weight this by NTKMA's own historical footfall-distribution data.
 - **Ghat/route capacity figures are Trinetra's own illustrative planning estimates**, not official NTKMA-surveyed numbers — see `trinetra/data/sites.json`'s own citation note. Site *names, locations, and historical incident facts* are real and cited; the numeric capacities are not, and must never be presented to NTKMA as authoritative without their own verification.
@@ -167,4 +191,4 @@ trinetra simulate --name "test" --pilgrims 500000 --duration 180 --ghats ramkund
 
 ## Deploying to AWS
 
-See `deploy/trinetra/README.md` for the CloudShell/AgentCore deployment path, following the same pattern as BidWright's and ClaimClarity's `deploy/cloudshell/` scripts.
+See `deploy/trinetra/README.md` for the CloudShell/AgentCore deployment path (`agentcore_app_trinetra.py`), following the same pattern as BidWright's and ClaimClarity's `deploy/cloudshell/` scripts. **Honest gap:** that path deploys the action-routed AgentCore entrypoint, not the FastAPI + React web UI — there is no container/ECS deployment for `trinetra/api.py` + `webapp/trinetra/` yet, unlike GlacierWatch's `Dockerfile.glacierwatch.webapp` + ECS Express path. Building that is the natural next AWS-deployment task: a `Dockerfile.trinetra.webapp` following GlacierWatch's exactly, since `server_trinetra.py` already serves both the API and the built frontend from one process.

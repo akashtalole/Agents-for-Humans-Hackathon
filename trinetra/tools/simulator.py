@@ -14,7 +14,16 @@ real historical Kumbh stampedes.
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from trinetra.models import GhatSimResult, Ghat, Route, RiskLevel, SimulationReport, SimulationScenario
+
+# One snapshot per simulated minute: {ghat_id: {"occupancy": float, "pct_of_capacity": float}}.
+# Used by trinetra/api.py to stream a live-updating digital twin over SSE -
+# see that module for how this becomes an animated view rather than a
+# wait-for-the-final-report one.
+TickSnapshot = dict[str, dict[str, float]]
+OnTickCallback = Callable[[int, TickSnapshot], None]
 
 # A single access point can safely pass roughly this many people per minute
 # before queuing turns into pressure - a conservative planning proxy, not a
@@ -65,13 +74,27 @@ def _risk_level(peak_pct: float) -> RiskLevel:
 
 
 def simulate_scenario(
-    scenario: SimulationScenario, ghats: dict[str, Ghat], routes: list[Route]
+    scenario: SimulationScenario,
+    ghats: dict[str, Ghat],
+    routes: list[Route],
+    on_tick: OnTickCallback | None = None,
 ) -> SimulationReport:
     """Tick-by-tick (one tick = one minute) occupancy simulation for every
-    active ghat in the scenario. Demand is split evenly across active ghats
-    as a simplifying assumption - a real deployment would weight this by
+    active ghat in the scenario, advancing all ghats together minute by
+    minute (not one ghat fully simulated before the next) so that a caller
+    watching via on_tick sees a single, internally-consistent snapshot of
+    the whole site at each moment - what a real digital twin needs to
+    animate meaningfully. Demand is split evenly across active ghats as a
+    simplifying assumption - a real deployment would weight this by
     NTKMA's own historical footfall-distribution data; see
-    TRINETRA.md's honest-limitations section."""
+    TRINETRA.md's honest-limitations section.
+
+    on_tick, if given, is called once per simulated minute with
+    (minute, {ghat_id: {"occupancy": ..., "pct_of_capacity": ...}}) for
+    every active ghat's state at that minute - purely an observation hook,
+    it cannot influence the simulation. The returned SimulationReport is
+    identical whether or not on_tick is supplied.
+    """
     active_ghats = [ghats[gid] for gid in scenario.active_ghat_ids if gid in ghats]
     if not active_ghats:
         raise ValueError(f"No known ghats among {scenario.active_ghat_ids}")
@@ -80,35 +103,49 @@ def simulate_scenario(
     peak_start = scenario.duration_minutes // 3
     peak_end = 2 * scenario.duration_minutes // 3
 
-    ghat_results: list[GhatSimResult] = []
-    incidents: list[str] = []
+    outflow_caps = {g.id: _outflow_capacity(g, routes) for g in active_ghats}
+    admission_block_levels = {g.id: g.safe_capacity * _ADMISSION_BLOCK_MULTIPLE for g in active_ghats}
+    occupancy = {g.id: 0.0 for g in active_ghats}
+    peak_occupancy = {g.id: 0.0 for g in active_ghats}
+    peak_tick = {g.id: 0 for g in active_ghats}
 
-    for ghat in active_ghats:
-        outflow_cap = _outflow_capacity(ghat, routes)
-        occupancy = 0.0
-        peak_occupancy = 0.0
-        peak_tick = 0
+    for minute in range(scenario.duration_minutes):
+        is_peak_window = peak_start <= minute < peak_end
+        tick_snapshot: TickSnapshot = {}
 
-        admission_block_level = ghat.safe_capacity * _ADMISSION_BLOCK_MULTIPLE
-
-        for minute in range(scenario.duration_minutes):
-            is_peak_window = peak_start <= minute < peak_end
+        for ghat in active_ghats:
+            gid = ghat.id
             demanded_inflow = baseline_inflow_per_min * (scenario.peak_inflow_multiplier if is_peak_window else 1.0)
             # Admission control: once occupancy reaches the block level, only
             # let in enough new arrivals to replace outflow, rather than
             # letting the queue grow without bound - see _ADMISSION_BLOCK_MULTIPLE.
-            admitted_inflow = demanded_inflow if occupancy < admission_block_level else min(demanded_inflow, outflow_cap)
-            outflow = min(outflow_cap, occupancy + admitted_inflow)
-            occupancy = max(0.0, occupancy + admitted_inflow - outflow)
-            if occupancy > peak_occupancy:
-                peak_occupancy = occupancy
-                peak_tick = minute
+            admitted_inflow = (
+                demanded_inflow if occupancy[gid] < admission_block_levels[gid] else min(demanded_inflow, outflow_caps[gid])
+            )
+            outflow = min(outflow_caps[gid], occupancy[gid] + admitted_inflow)
+            occupancy[gid] = max(0.0, occupancy[gid] + admitted_inflow - outflow)
+            if occupancy[gid] > peak_occupancy[gid]:
+                peak_occupancy[gid] = occupancy[gid]
+                peak_tick[gid] = minute
 
-        peak_pct = peak_occupancy / ghat.safe_capacity if ghat.safe_capacity else float("inf")
+            tick_snapshot[gid] = {
+                "occupancy": occupancy[gid],
+                "pct_of_capacity": (occupancy[gid] / ghat.safe_capacity * 100) if ghat.safe_capacity else 0.0,
+            }
+
+        if on_tick is not None:
+            on_tick(minute, tick_snapshot)
+
+    ghat_results: list[GhatSimResult] = []
+    incidents: list[str] = []
+
+    for ghat in active_ghats:
+        gid = ghat.id
+        peak_pct = peak_occupancy[gid] / ghat.safe_capacity if ghat.safe_capacity else float("inf")
         risk = _risk_level(peak_pct)
 
         bottleneck_routes = [
-            r.name for r in routes if ghat.id in r.connects and r.capacity_per_minute < outflow_cap + 1
+            r.name for r in routes if gid in r.connects and r.capacity_per_minute < outflow_caps[gid] + 1
         ]
 
         if risk == RiskLevel.CRITICAL:
@@ -120,16 +157,16 @@ def simulate_scenario(
             )
             incidents.append(
                 f"Crowd crush risk at {ghat.name}: peak occupancy {peak_pct * 100:.0f}% of safe capacity"
-                f"{structural_note} at minute {peak_tick} of the simulated window."
+                f"{structural_note} at minute {peak_tick[gid]} of the simulated window."
             )
 
         ghat_results.append(
             GhatSimResult(
-                ghat_id=ghat.id,
+                ghat_id=gid,
                 ghat_name=ghat.name,
-                peak_occupancy=round(peak_occupancy),
+                peak_occupancy=round(peak_occupancy[gid]),
                 peak_occupancy_pct_of_safe_capacity=round(peak_pct * 100, 1),
-                peak_tick_minute=peak_tick,
+                peak_tick_minute=peak_tick[gid],
                 risk_level=risk,
                 bottleneck_routes=bottleneck_routes,
             )
