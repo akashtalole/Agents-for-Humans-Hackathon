@@ -334,9 +334,17 @@ in the video.
 Up to **0.6 extra points** (0.2 per piece, Stage Two only). Posts should use
 **"Agents for Humans" in the title**.
 
-**The first one is written**: [`BLOG_BUILDER_AWS.md`](BLOG_BUILDER_AWS.md) —
-publication-ready, needs only your byline. The other two are outlined below,
-each grounded in something that actually happened:
+**Two are written and publication-ready** — the bonus allows more than one
+piece at 0.2 each, so both are worth posting:
+
+1. [`BLOG_BUILDER_AWS.md`](BLOG_BUILDER_AWS.md) — **the primary one.**
+   Strands Agents, the multi-agent architecture, and how it helps Nashik
+   2027, with the AWS work threaded through.
+2. [`BLOG_BUILDER_AWS_DEPLOYMENT.md`](BLOG_BUILDER_AWS_DEPLOYMENT.md) — the
+   AWS deployment mechanics in depth: CloudShell + CodeBuild + ECS Express,
+   the two-phase agent-card deploy, and three bugs the CLI reference found.
+
+A third is outlined below:
 
 1. **"Agents for Humans: shipping a multi-agent platform from AWS CloudShell
    with zero local Docker"** — CodeBuild-built images into ECS Express Mode, the
