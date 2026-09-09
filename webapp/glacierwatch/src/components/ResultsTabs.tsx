@@ -4,7 +4,13 @@ import remarkGfm from 'remark-gfm'
 import { fetchFile } from '../api'
 import type { FileEntry, Site } from '../types'
 
-const TABS = ['Weekly Watchlist', 'Site Profiles', 'Current Conditions', "Agent's Own Summary (unverified)"] as const
+const TABS = [
+  'Weekly Watchlist',
+  'Independent Audit',
+  'Site Profiles',
+  'Current Conditions',
+  "Agent's Own Summary (unverified)",
+] as const
 type Tab = (typeof TABS)[number]
 
 function Markdown({ content }: { content: string }) {
@@ -51,6 +57,42 @@ function WeeklyWatchlistTab({ jobId }: { jobId: string }) {
           className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
         >
           ⬇️ Download watchlist_report.md
+        </button>
+      </div>
+      <Markdown content={content} />
+    </div>
+  )
+}
+
+function IndependentAuditTab({ jobId }: { jobId: string }) {
+  const [content, setContent] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchFile(jobId, 'risk_cross_check.md').then((text) => {
+      if (!cancelled) setContent(text)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [jobId])
+
+  if (content === null) return <p className="text-sm text-slate-500">Loading…</p>
+
+  return (
+    <div>
+      <p className="mb-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+        A second, independent agent re-derives each active site's priority level from scratch, with no
+        view of the first assessment. When the two disagree, the <strong>more cautious</strong> rating is
+        always adopted here - understating risk is worse than overstating it.
+      </p>
+      <div className="mb-4 flex justify-end">
+        <button
+          type="button"
+          onClick={() => downloadText('risk_cross_check.md', content)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+        >
+          ⬇️ Download risk_cross_check.md
         </button>
       </div>
       <Markdown content={content} />
@@ -177,6 +219,7 @@ export default function ResultsTabs({
       </div>
       <div className="p-5">
         {active === 'Weekly Watchlist' && <WeeklyWatchlistTab jobId={jobId} />}
+        {active === 'Independent Audit' && <IndependentAuditTab jobId={jobId} />}
         {active === 'Site Profiles' && <SiteProfilesTab jobId={jobId} sites={sites} />}
         {active === 'Current Conditions' && <CurrentConditionsTab jobId={jobId} sites={sites} />}
         {active === "Agent's Own Summary (unverified)" && <AgentSummaryTab summaryText={summaryText} />}

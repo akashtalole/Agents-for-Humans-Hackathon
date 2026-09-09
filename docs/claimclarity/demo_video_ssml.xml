@@ -62,8 +62,8 @@
 
 <!-- ================================================================ -->
 <!-- SECTION 4: LIVE DEMO WALKTHROUGH                                 -->
-<!-- SCREEN: CLI or Streamlit, bundled example denial notice + plan summary of benefits selected -->
-<!-- Target run time: ~2m 15s — this is the core of the video -->
+<!-- SCREEN: Web UI (webapp/claimclarity), bundled example denial notice + plan summary of benefits selected -->
+<!-- Target run time: ~1m 30s — this is the core of the video -->
 <!-- ================================================================ -->
 <p>
   <s>Let's watch it work on a real example: a denial notice with two line
@@ -73,37 +73,18 @@
 <break time="500ms"/>
 
 <p>
-  <s>One click, and an orchestrator agent takes over — coordinating three
-  specialized sub-agents, each returning validated, structured data instead
-  of loose text one agent might hand the next and get wrong.</s>
-</p>
-
-<break time="500ms"/>
-
-<!-- SCREEN: Claim Analyzer output — claim_summary.md content -->
-<p>
-  <s>First, the Claim Analyzer reads the denial notice, the plan summary of
-  benefits, and the medical record excerpt, and extracts a structured
-  record: patient, insurer, every denied line item with its procedure and
-  diagnosis codes, the stated denial reason, and the appeal deadline —
-  which also becomes a calendar reminder with automatic two-week and
-  three-day advance warnings.</s>
-</p>
-
-<break time="500ms"/>
-
-<!-- SCREEN: Denial Investigator's tool trace — lookup_icd10_code / search_icd10_codes calls visible -->
-<p>
-  <s>Next, the Denial Investigator looks at each denied line item — and
-  this is the part we care most about getting right. Instead of reasoning
-  about medical coding from a language model's memory, which is a common
-  source of confidently wrong billing advice, it actually
+  <s>One click, and an orchestrator agent takes over. Watch the activity
+  log — this is a real tool call happening live, not a canned animation:
+  instead of reasoning about medical coding from a language model's memory,
+  which is a common source of confidently wrong billing advice, the Denial
+  Investigator actually
   <emphasis level="moderate">calls a real ICD-10 lookup tool</emphasis>
-  before concluding anything.</s>
+  before concluding anything about a code.</s>
 </p>
 
-<break time="400ms"/>
+<break time="500ms"/>
 
+<!-- SCREEN: Denial Findings tab — two line items, different classifications -->
 <p>
   <s>On this run, it caught that one line item's diagnosis code was retired
   for billing purposes back in twenty twenty-two — a mechanical
@@ -117,12 +98,35 @@
 
 <break time="500ms"/>
 
-<!-- SCREEN: Appeal Drafter output — appeal_package.md tab -->
+<!-- SCREEN: Independent Audit tab (cross-check output) -->
+<p>
+  <s>A second, independent investigation runs right after — same claim,
+  same real coding tools, but no knowledge of the first investigator's
+  conclusion. Because every finding carries a stable procedure code,
+  comparing the two doesn't even need another model call: it's a plain
+  code diff, and any disagreement forces that line item to
+  <emphasis level="moderate">needs review</emphasis> instead of trusting
+  either investigation alone.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Appeal Package tab -->
 <p>
   <s>Then the Appeal Drafter writes a real, ready-to-send appeal letter for
-  the item worth appealing — citing the specific denial reason and the
-  corrected code — and an honest plain-language explanation for the one
-  that isn't, instead of drafting a doomed letter just to be agreeable.</s>
+  the item worth appealing, and an honest plain-language explanation for
+  the one that isn't — instead of drafting a doomed letter just to be
+  agreeable.</s>
+</p>
+
+<break time="500ms"/>
+
+<!-- SCREEN: Approval panel; click Approve -->
+<p>
+  <s>Nothing gets sent automatically. The run lands in an approval panel —
+  because whoever's reading this is often not watching every file get
+  written; they're sick, or stressed, or just busy — and a human has to
+  actually approve it, edits included, before it's marked done.</s>
 </p>
 
 <break time="500ms"/>
@@ -131,18 +135,7 @@
 <p>
   <s>And everything funnels into exactly one place a stressed patient
   actually needs to read: <emphasis level="moderate">Decisions Needed</emphasis>.</s>
-  <s>What's worth appealing, what isn't and why, and the deadline. Nothing
-  else requires your attention unless you want to dig in.</s>
-</p>
-
-<break time="500ms"/>
-
-<!-- SCREEN: NoSessionContext crash screenshot, briefly, captioned as a real bug filed openly -->
-<p>
-  <s>Being candid: while producing this very documentation, we found and
-  precisely root-caused a real threading bug in the demo's live activity
-  log — filed openly rather than hidden, with the exact fix documented, and
-  confirmed the underlying agent pipeline itself is unaffected.</s>
+  <s>What's worth appealing, what isn't and why, and the deadline.</s>
 </p>
 
 <break time="700ms"/>
@@ -150,18 +143,23 @@
 <!-- ================================================================ -->
 <!-- SECTION 5: CLOSE                                                 -->
 <!-- SCREEN: ClaimClarity logo/title card, then architecture diagram briefly -->
-<!-- Target run time: ~25s -->
+<!-- Target run time: ~20s -->
 <!-- ================================================================ -->
 <p>
   <s>ClaimClarity drafts. It doesn't submit — a human always reviews and
-  sends the appeal, which is the entire point of that one summary.</s>
+  sends the appeal, which is the entire point of that approval panel.</s>
 </p>
 
 <p>
-  <s>Next up: a full, live ICD-10-CM data source instead of a curated demo
-  subset, support for more insurers' plan formats, and a verified
-  deployment on Amazon Bedrock AgentCore for teams that want it running in
-  the cloud, not just on a laptop.</s>
+  <s>And the same run also watches for a pattern: if the same insurer
+  denies the same thing more than once across a patient's history, that
+  gets surfaced too — a materially stronger fact for an appeal than one
+  denial looked at alone.</s>
+</p>
+
+<p>
+  <s>Next, genuinely: a full, live ICD-10-CM data source instead of a
+  curated demo subset, and support for more insurers' plan formats.</s>
 </p>
 
 <break time="400ms"/>

@@ -11,6 +11,7 @@ const FILE_TABS: { name: string; label: string }[] = [
   { name: 'decisions_needed.md', label: 'Decisions Needed' },
   { name: 'claim_summary.md', label: 'Claim Summary' },
   { name: 'denial_findings.md', label: 'Denial Findings' },
+  { name: 'denial_cross_check.md', label: 'Independent Audit' },
   { name: 'appeal_package.md', label: 'Appeal Package' },
   { name: 'escalation_package.md', label: 'External Review & Escalation' },
 ]
