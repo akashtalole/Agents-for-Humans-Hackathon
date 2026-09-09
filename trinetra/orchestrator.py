@@ -26,23 +26,29 @@ from strands import Agent, tool
 from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
 from trinetra.agents.hydrology_advisor import advise_on_compound_risk
+from trinetra.agents.incident_commander import command_the_incident
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
+from trinetra.agents.red_team import critique_plan
 from trinetra.agents.rumor_analyst import assess_rumor
 from trinetra.agents.safety_triage import triage_sos_report
 from trinetra.config import create_agent
 from trinetra.models import (
+    AllocationPlan,
     CommandBrief,
     CompoundRiskAssessment,
+    ConflictScanResult,
     CrowdSignal,
     DamRelease,
     Ghat,
     HydrologyAdvisory,
+    IncidentCommandPlan,
     IndianLanguage,
     MobilityProfile,
     NetworkMode,
     NTKMAAdvisory,
     PilgrimGuidance,
     PilgrimQuery,
+    PlanCritique,
     Route,
     RumorAssessment,
     RumorGuardrailResult,
@@ -54,10 +60,19 @@ from trinetra.models import (
 )
 from trinetra.tools.calibration import run_all_calibration_cases
 from trinetra.tools.calibration import CalibrationResult
+from trinetra.tools.conflicts import scan_for_conflicts
 from trinetra.tools.crowd_signals import signals_from_simulation
 from trinetra.tools.geography import load_sites
 from trinetra.tools.hydrology import assess_compound_risk
 from trinetra.tools.rainfall import fetch_recent_rainfall_mm
+from trinetra.tools.resources import (
+    allocate,
+    default_resource_pool,
+    demands_from_command_brief,
+    demands_from_flood,
+    demands_from_rumor,
+    demands_from_sos,
+)
 from trinetra.tools.rumor_guardrail import scan_counter_message
 from trinetra.tools.simulator import simulate_scenario
 
@@ -80,6 +95,10 @@ class TrinetraSession:
     last_hydrology_advisory: HydrologyAdvisory | None = None
     last_rumor_assessment: RumorAssessment | None = None
     last_rumor_guardrail: RumorGuardrailResult | None = None
+    last_allocation: AllocationPlan | None = None
+    last_conflicts: ConflictScanResult | None = None
+    last_command_plan: IncidentCommandPlan | None = None
+    last_critique: PlanCritique | None = None
 
     def __post_init__(self) -> None:
         if not self.ghats:
@@ -162,6 +181,85 @@ def triage_rumor(session: TrinetraSession, report: RumorReport) -> tuple[RumorAs
     return assessment, guardrail
 
 
+
+
+def command_incident(
+    session: TrinetraSession,
+    signals: list[CrowdSignal] | None = None,
+    flood_discharge_cusecs: int | None = None,
+    flood_occupancy: dict[str, int] | None = None,
+    sos_reports: list[SOSReport] | None = None,
+    rumor: RumorReport | None = None,
+    mobility_mix: dict[MobilityProfile, float] | None = None,
+    fetch_rainfall: bool = True,
+    run_red_team: bool = True,
+) -> tuple[IncidentCommandPlan, AllocationPlan, ConflictScanResult, PlanCritique | None]:
+    """Sankat Nirnay: run every live hazard through its own desk, then
+    reconcile them against a finite responder pool.
+
+    The order here is the architecture. Each desk runs independently and
+    without knowledge of the others - that independence is deliberate, and it
+    is why the flood desk's numbers cannot be argued down by a crowd-pressure
+    case. The cost of that independence is that no desk can see whether the
+    union of their advice is executable, so the two deterministic passes
+    (allocate, then scan for conflicts) run over their combined output before
+    any model is asked to command anything.
+    """
+    demands = []
+    brief = None
+    flood = None
+    triages: list[SafetyTriage] = []
+    rumor_assessment = None
+
+    if signals:
+        brief = get_command_brief(session, signals)
+        demands += demands_from_command_brief(brief)
+
+    if flood_discharge_cusecs is not None and flood_occupancy:
+        flood, _ = assess_flood_risk(
+            session,
+            flood_discharge_cusecs,
+            flood_occupancy,
+            mobility_mix=mobility_mix,
+            fetch_rainfall=fetch_rainfall,
+        )
+        demands += demands_from_flood(flood, session.last_hydrology_advisory)
+
+    if sos_reports:
+        paired = [(r, report_sos(session, r)) for r in sos_reports]
+        triages = [t for _, t in paired]
+        demands += demands_from_sos(paired)
+
+    if rumor is not None:
+        rumor_assessment, _ = triage_rumor(session, rumor)
+        demands += demands_from_rumor(rumor_assessment, rumor.location)
+
+    allocation = allocate(default_resource_pool(), demands)
+    conflicts = scan_for_conflicts(
+        session.ghats,
+        session.routes,
+        flood=flood,
+        brief=brief,
+        signals=signals,
+        allocation=allocation,
+    )
+
+    plan = command_the_incident(
+        allocation=allocation,
+        conflicts=conflicts,
+        flood=flood,
+        brief=brief,
+        triages=triages,
+        rumor=rumor_assessment,
+    )
+    critique = critique_plan(plan, allocation, conflicts) if run_red_team else None
+
+    session.last_allocation = allocation
+    session.last_conflicts = conflicts
+    session.last_command_plan = plan
+    session.last_critique = critique
+    return plan, allocation, conflicts, critique
+
 # --- top-level conversational router (agents as tools) ---
 
 ROUTER_PROMPT = """\
@@ -180,6 +278,16 @@ scenario (e.g. "what happens on Mauni Amavasya", "simulate a surge at \
 Ramkund").
 - run_calibration_check: a request to validate the simulator against real \
 historical incidents.
+- flood_risk_check: anything about the Godavari rising, Gangapur Dam \
+discharge/release, or whether a ghat can be cleared before water arrives.
+- rumor_check: a report that something is being SAID or spread among the \
+crowd - a rumour of a stampede, a closure, a collapse - as distinct from a \
+report that it actually happened (that is report_emergency).
+- command_incident_tool: use this when SEVERAL hazards are live at once, or \
+when the request is about priorities, competing demands, or who to send \
+where first. It is the only tool that reconciles the other desks against a \
+finite number of responder units; the single-hazard tools above each assume \
+they can have whatever they ask for.
 
 After calling the right tool, give a brief final reply pointing to the \
 generated report/response - never restate its specifics from memory, since \
@@ -223,7 +331,57 @@ def build_orchestrator(session: TrinetraSession) -> Agent:
         results = run_calibration(session)
         return "\n".join(f"{r.case_name}: {r.simulated_peak_risk.value} (correct={r.correctly_flagged})" for r in results)
 
+    @tool
+    def flood_risk_check(discharge_cusecs: int, occupancy_by_ghat: dict[str, int]) -> str:
+        """Assess a Gangapur Dam release against who is currently on the flood-exposed Godavari ghats."""
+        assessment, advisory = assess_flood_risk(session, discharge_cusecs, occupancy_by_ghat)
+        return f"{assessment.model_dump_json(indent=2)}\n\nADVISORY:\n{advisory.model_dump_json(indent=2)}"
+
+    @tool
+    def rumor_check(text: str, location: str, spreading_fast: bool = False) -> str:
+        """Assess a rumour circulating in the crowd and draft a guardrail-scanned counter-message."""
+        assessment, guardrail = triage_rumor(
+            session, RumorReport(text=text, location=location, spreading_fast=spreading_fast)
+        )
+        return f"{assessment.model_dump_json(indent=2)}\n\nGUARDRAIL:\n{guardrail.model_dump_json(indent=2)}"
+
+    @tool
+    def command_incident_tool(
+        discharge_cusecs: int | None = None,
+        flood_occupancy: dict[str, int] | None = None,
+        rumor_text: str | None = None,
+        rumor_location: str | None = None,
+    ) -> str:
+        """Reconcile every live hazard against the finite responder pool and produce one command plan."""
+        rumor = (
+            RumorReport(text=rumor_text, location=rumor_location or "unspecified")
+            if rumor_text
+            else None
+        )
+        plan, allocation, conflicts, critique = command_incident(
+            session,
+            flood_discharge_cusecs=discharge_cusecs,
+            flood_occupancy=flood_occupancy,
+            rumor=rumor,
+        )
+        parts = [
+            plan.model_dump_json(indent=2),
+            f"ALLOCATION:\n{allocation.model_dump_json(indent=2)}",
+            f"CONFLICTS:\n{conflicts.model_dump_json(indent=2)}",
+        ]
+        if critique is not None:
+            parts.append(f"RED TEAM:\n{critique.model_dump_json(indent=2)}")
+        return "\n\n".join(parts)
+
     return create_agent(
         system_prompt=ROUTER_PROMPT,
-        tools=[pilgrim_help, report_emergency, simulate_scenario_tool, run_calibration_check],
+        tools=[
+            pilgrim_help,
+            report_emergency,
+            simulate_scenario_tool,
+            run_calibration_check,
+            flood_risk_check,
+            rumor_check,
+            command_incident_tool,
+        ],
     )

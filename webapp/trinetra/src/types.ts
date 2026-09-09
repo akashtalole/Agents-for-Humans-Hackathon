@@ -183,3 +183,78 @@ export interface CalibrationResult {
   correctly_flagged: boolean
   note: string
 }
+
+export type ResponderType = 'police' | 'medical' | 'ambulance' | 'rescue' | 'announcer'
+
+export interface ResourceAllocation {
+  demand_id: string
+  source: string
+  target_name: string
+  responder_type: ResponderType
+  units_requested: number
+  units_granted: number
+  severity: RiskLevel
+  fully_met: boolean
+  shortfall_reason: string
+}
+
+export interface AllocationPlan {
+  pool: Record<string, number>
+  allocations: ResourceAllocation[]
+  remaining: Record<string, number>
+  contended_types: ResponderType[]
+  unmet_critical: string[]
+  summary: string
+}
+
+export interface DirectiveConflict {
+  kind: string
+  severity: RiskLevel
+  target_name: string
+  sources: string[]
+  detail: string
+}
+
+export interface ConflictScanResult {
+  conflicts: DirectiveConflict[]
+  summary: string
+}
+
+export interface CommandDecision {
+  sequence: number
+  target_name: string
+  directive: string
+  responder_types: ResponderType[]
+  within_minutes: number
+  justification: string
+  contested: boolean
+}
+
+export interface IncidentCommandPlan {
+  headline: string
+  overall_risk: RiskLevel
+  decisions: CommandDecision[]
+  accepted_risks: string[]
+  escalate_to_human: string[]
+  narrative_summary: string
+}
+
+export interface PlanWeakness {
+  weakness: string
+  breaks_under: string
+  severity: RiskLevel
+  suggested_mitigation: string
+}
+
+export interface PlanCritique {
+  weaknesses: PlanWeakness[]
+  single_points_of_failure: string[]
+  overall_verdict: string
+}
+
+export interface CommandResponse {
+  plan: IncidentCommandPlan
+  allocation: AllocationPlan
+  conflicts: ConflictScanResult
+  critique: PlanCritique | null
+}

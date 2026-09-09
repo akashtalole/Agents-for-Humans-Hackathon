@@ -10,8 +10,9 @@ import DigitalTwinView from './components/DigitalTwinView'
 import CalibrationView from './components/CalibrationView'
 import FloodRiskView from './components/FloodRiskView'
 import RumorView from './components/RumorView'
+import CommandView from './components/CommandView'
 
-export type ViewKey = 'overview' | 'pilgrim' | 'admin' | 'twin' | 'flood' | 'rumor' | 'calibration'
+export type ViewKey = 'overview' | 'pilgrim' | 'admin' | 'twin' | 'flood' | 'rumor' | 'command' | 'calibration'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('overview')
@@ -55,6 +56,7 @@ export default function App() {
                 {view === 'twin' && <DigitalTwinView sites={sites} />}
                 {view === 'flood' && <FloodRiskView sites={sites} />}
                 {view === 'rumor' && <RumorView />}
+                {view === 'command' && <CommandView sites={sites} />}
                 {view === 'calibration' && <CalibrationView />}
               </div>
             )}

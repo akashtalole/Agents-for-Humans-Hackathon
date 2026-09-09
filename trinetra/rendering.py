@@ -8,10 +8,14 @@ structured data exactly, never an LLM's retelling of it.
 from __future__ import annotations
 
 from trinetra.models import (
+    AllocationPlan,
     CalibrationResult,
     CommandBrief,
     CompoundRiskAssessment,
+    ConflictScanResult,
     HydrologyAdvisory,
+    IncidentCommandPlan,
+    PlanCritique,
     NTKMAAdvisory,
     PilgrimGuidance,
     RumorAssessment,
@@ -231,4 +235,105 @@ def render_pilgrim_guidance_md(guidance: PilgrimGuidance) -> str:
         lines.append(f"**Safety note:** {guidance.safety_note}")
     if guidance.escalate_to_sos:
         lines.append("\n⚠️ **This looked like it might be an emergency - routed for SOS follow-up.**")
+    return "\n".join(lines)
+
+
+def render_incident_command_md(
+    plan: IncidentCommandPlan,
+    allocation: AllocationPlan,
+    conflicts: ConflictScanResult,
+    critique: PlanCritique | None = None,
+) -> str:
+    """The Sankat Nirnay reconciled command picture.
+
+    Ordering here is deliberate and is the whole point of the document: the
+    contested decisions, the conflicts and the accepted risks come BEFORE the
+    routine sequence. An operator reading under pressure must hit the calls
+    that need a human first, not scroll past twelve satisfied demands to find
+    the one that isn't."""
+    lines = [
+        "# Sankat Nirnay — reconciled incident command",
+        "",
+        DISCLAIMER,
+        "",
+        f"**Overall risk: {plan.overall_risk.value.upper()}**",
+        "",
+        f"## {plan.headline}",
+        "",
+        plan.narrative_summary,
+        "",
+    ]
+
+    if plan.escalate_to_human:
+        lines += [
+            "## 🔴 Calls the commander must make personally",
+            "",
+            _bullets(plan.escalate_to_human),
+            "",
+        ]
+
+    if conflicts.conflicts:
+        lines += ["## Conflicting directives detected", "", f"_{conflicts.summary}_", ""]
+        for c in conflicts.conflicts:
+            lines.append(
+                f"- **[{c.severity.value.upper()}] {c.target_name}** "
+                f"({c.kind.value.replace('_', ' ')}, from {' + '.join(c.sources)}): {c.detail}"
+            )
+        lines.append("")
+
+    if plan.accepted_risks:
+        lines += [
+            "## Accepted risks — what this plan knowingly gives up",
+            "",
+            _bullets(plan.accepted_risks),
+            "",
+        ]
+
+    lines += ["## Execution sequence", ""]
+    if not plan.decisions:
+        lines.append("_No decisions were produced._")
+    for d in sorted(plan.decisions, key=lambda x: x.sequence):
+        marker = " ⚠️ **contested**" if d.contested else ""
+        responders = ", ".join(r.value for r in d.responder_types) or "—"
+        lines.append(f"### {d.sequence}. {d.target_name} — within {d.within_minutes} min{marker}")
+        lines.append(f"- **Directive:** {d.directive}")
+        lines.append(f"- **Responders:** {responders}")
+        lines.append(f"- **Why:** {d.justification}")
+        lines.append("")
+
+    lines += ["## Responder allocation", "", f"_{allocation.summary}_", ""]
+    lines.append("| Target | Source | Type | Requested | Granted | Severity |")
+    lines.append("| --- | --- | --- | ---: | ---: | --- |")
+    for a in allocation.allocations:
+        granted = f"{a.units_granted}" if a.fully_met else f"**{a.units_granted}**"
+        lines.append(
+            f"| {a.target_name} | {a.source} | {a.responder_type.value} | "
+            f"{a.units_requested} | {granted} | {a.severity.value} |"
+        )
+    lines.append("")
+    remaining = ", ".join(f"{t.value}: {n}" for t, n in sorted(allocation.remaining.items(), key=lambda kv: kv[0].value))
+    lines += [f"**Units still uncommitted:** {remaining}", ""]
+
+    if allocation.unmet_critical:
+        lines += [
+            "### Critical demands that could not be met in full",
+            "",
+            _bullets(allocation.unmet_critical),
+            "",
+        ]
+
+    if critique is not None:
+        lines += ["## Independent red-team critique", "", f"**Verdict:** {critique.overall_verdict}", ""]
+        if critique.single_points_of_failure:
+            lines += ["**Single points of failure:**", "", _bullets(critique.single_points_of_failure), ""]
+        if critique.weaknesses:
+            lines += ["**Weaknesses:**", ""]
+            for w in critique.weaknesses:
+                lines.append(f"- **[{w.severity.value.upper()}] {w.weakness}**")
+                lines.append(f"  - Breaks under: {w.breaks_under}")
+                lines.append(f"  - Mitigation: {w.suggested_mitigation}")
+            lines.append("")
+        else:
+            lines += ["_The reviewer found no material weaknesses._", ""]
+
     return "\n".join(lines)

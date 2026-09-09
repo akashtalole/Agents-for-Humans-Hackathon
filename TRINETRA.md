@@ -126,6 +126,20 @@ A passing draft is explicitly *not* cleared to broadcast: the guardrail's summar
 
 Verified live and adversarially: a Hindi stampede rumor ("Ramkund pe bhagdad mach gayi hai") returned a CRITICAL assessment whose counter-message gives safety instruction *without* denying the rumor, with genuine Devanagari translation and specific verification items. All four dangerous drafts in the negative tests were blocked; the safe one passed.
 
+### Sankat Nirnay — incident command when every desk wants the same units
+
+Every agent above answers one question about one hazard, and each one, reasoning correctly in isolation, assumes it can have whatever it asks for. A control room at 04:00 on a Shahi Snan morning does not get that luxury: a dam release, two open SOS incidents, a rumour moving through the crowd and two ghats near capacity are all live at once, competing for the same finite police, medical, ambulance, rescue and announcer units.
+
+Two failure modes emerge from that concurrency, and neither is visible to any single desk:
+
+**Resource over-commitment.** Each desk independently says "deploy personnel now". Summed, they can request more units than exist — and an operator who executes all of them has silently under-resourced the worst incident without ever being told. `trinetra/tools/resources.py` divides the pool in a documented, reproducible priority order (severity, then deadline, then size, then id for determinism) and — the part that matters — **never under-allocates quietly**. Every partial fill carries an explicit reason, and unmet *critical* demands are lifted into their own field, because those are precisely the calls a human commander has to make personally.
+
+**Contradictory directives.** The flood desk needs Ramkund cleared; the crowd desk has Panchavati at 96% of capacity and wants it protected. Both are right. Executing both pushes a flood evacuation into a crush — which is how the 1.8m Kalaram Mandir Marg lane killed 39 people in 2003. `trinetra/tools/conflicts.py` detects these as properties of a *pair* of desks: evacuation routed down a documented crush lane, evacuation into a neighbour already at capacity, a gate closure that removes egress the evacuation depends on, and critical demands the allocator could not fill. A live run of the scenario above produced exactly these, with the 2003 citation travelling attached to the warning so an operator overriding it can see what it rests on.
+
+Only what is genuinely left over goes to a model. When the allocator reports that the rumour desk asked for six announcers and got four, no formula says whether to strip units from a lesser incident, accept the gap, or change the plan so fewer are needed — that is judgment, and `trinetra/agents/incident_commander.py` exists to lay it out clearly enough for a human to decide in the thirty seconds they actually have. It is required to visibly resolve every detected conflict, mark those decisions `contested`, and state what the plan gives up in `accepted_risks`.
+
+**And then the plan is attacked.** `trinetra/agents/red_team.py` is the analogue of the independent cross-check the other three projects run, aimed at an operational plan instead of a document — a plan has no single right answer to re-derive, so the check is adversarial rather than duplicative. It is deliberately given the plan and the facts but **not** the commander's reasoning, so it argues with the decisions rather than being talked into them. On a live run it found a genuine race condition (the narrow-lane block was scheduled for the same minute as the evacuation it was supposed to precede), that background pilgrim inflow would consume the destination ghat's 200-person headroom before evacuees could use it, and — independently — that the plan had named a "Bus Stand assembly point" that does not exist in `sites.json`, which is the exact hallucination mode this document already lists under honest limitations.
+
 ## Network-resilience design
 
 A 30-50 million person event puts enormous strain on cellular networks — the honest assumption for this platform is that **not every pilgrim has a working smartphone data connection at every moment.** `trinetra/models.py`'s `NetworkMode` enum and `trinetra/tools/network_delivery.py` implement this as a first-class design axis, not an afterthought:
@@ -179,6 +193,25 @@ The underlying agent judgment is generated **once**, regardless of channel — a
      │       the output is a broadcast and the model cannot know the rumor   │
      │       is false. A human still verifies before anything is issued.     │
      └───────────────────────────────────────────────────────────────────┘
+
+     ┌───────────────────────────────────────────────────────────────────┐
+     │           Sankat Nirnay (sits ON TOP of every desk above)            │
+     │                                                                       │
+     │   each desk runs independently and unaware of the others              │
+     │                            │                                          │
+     │                            ▼                                          │
+     │   resources.py  — divide a finite pool  (deterministic)               │
+     │   conflicts.py  — find what cannot both be done (deterministic)       │
+     │                            │                                          │
+     │                            ▼                                          │
+     │   incident_commander.py  — judge only what is left over  (LLM)        │
+     │   red_team.py            — attack the finished plan       (LLM)       │
+     │                                                                       │
+     │   Desk independence is the feature: the flood desk's numbers cannot   │
+     │   be argued down by a crowd-pressure case. Its cost is that no desk   │
+     │   can see whether the UNION of their advice is executable - which is  │
+     │   what these two deterministic passes exist to check.                 │
+     └───────────────────────────────────────────────────────────────────┘
 ```
 
 Same discipline as BidWright/ClaimClarity/GlacierWatch elsewhere in this repo: every agent hand-off is a validated Pydantic model (`trinetra/models.py`), deterministic renderers (`trinetra/rendering.py`) — never an LLM — produce the file a human actually reads, and the model-provider selection (`trinetra/config.py`) supports both direct Anthropic and Amazon Bedrock.
@@ -200,6 +233,7 @@ python3 server_trinetra.py          # -> http://localhost:8000
 - **Prashasan Netra** — sliders for each ghat's current occupancy/inflow/outflow feeding a live `/api/admin/brief` call, rendering Prashasan Command's per-ghat recommendations with risk badges and urgency windows.
 - **Bhavishya Netra — the flagship digital twin.** A scenario builder (with one-click presets for the two calibration disasters plus a routine day and a hypothetical Mauni Amavasya-scale peak) drives a **live-animated network diagram**: ghat nodes sized and colored by real-time occupancy, pulsing when critical, route edges highlighted amber when they're the binding bottleneck — all built from `trinetra/tools/simulator.py`'s `on_tick` callback streamed over Server-Sent Events (`/api/simulations/{id}/events`), one synchronized snapshot of every active ghat per simulated minute, not per-ghat sequential playback. An occupancy timeline chart accumulates alongside it in real time. When the simulation finishes, the deterministic per-ghat results and the LLM advisory (specific interventions, each citing the actual modeled numbers) render below.
 - **Godavari Flood** — discharge presets anchored to the real documented observations, a mobility-mix slider, and per-ghat "time to clear vs. water arrives" bars drawn to scale against each other, ordered worst-first. The slider is the demo: drag it from 0% to 40% elderly and Ramkund flips from a zero-margin plan that appears to work to an 18-minute shortfall marked CANNOT CLEAR IN TIME.
+- **Incident Command** — the whole board at once. A one-click Shahi Snan preset loads a 22,000-cusec release, four ghats near capacity, two SOS incidents and a Hindi stampede rumour, then shows the reconciled picture: the calls needing a human first, then the detected conflicts, then what the plan knowingly gives up, then the execution sequence with contested steps marked, a responder-pool readout showing which unit types are over-subscribed, and the red team's critique underneath.
 - **Rumor Desk** — sample rumors (including a Hindi one), the crush-risk assessment, the drafted bilingual counter-message labelled *NOT approved for broadcast*, and the deterministic guardrail's verdict rendered underneath it with each finding's triggering excerpt and explanation.
 - **Calibration** — the two real historical disasters, pass/fail cards, computed live via the pure-code engine (no LLM call on this page at all).
 
@@ -226,15 +260,26 @@ trinetra flood-risk --discharge 22000 --occupancy ramkund=8000 panchavati_godava
 
 # Rumor triage. Exits non-zero when the guardrail blocks the drafted counter-message.
 trinetra rumor "Ramkund pe bhagdad mach gayi hai" --location "Ramkund approach" --spreading-fast
+
+# Sankat Nirnay: the whole board at once, reconciled against a finite responder pool.
+# Exits non-zero when the plan carries a call a human must make - an unresolved
+# critical conflict, or a critical demand the pool could not fill.
+trinetra command \
+  --discharge 22000 \
+  --occupancy ramkund=8000 panchavati_godavari=4800 kalaram_marg=1400 \
+  --sos "Ramkund::elderly man collapsed, not breathing well" \
+  --rumor "Ramkund pe bhagdad mach gayi hai" --rumor-location "Ramkund approach"
 ```
 
 ## Testing
 
-`pytest tests/test_trinetra_*.py` — 75 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, the `on_tick` streaming hook (fires once per minute with every active ghat's synchronized state, never changes the final report), both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, orchestrator wiring, and the FastAPI backend (including draining a live SSE simulation stream to completion) with mocked agents.
+`pytest tests/test_trinetra_*.py` — 107 offline tests, no API key required: the simulator's risk gradient (routine → elevated → critical), the admission-control cap that keeps extreme-demand scenarios from producing nonsensical percentages, the `on_tick` streaming hook (fires once per minute with every active ghat's synchronized state, never changes the final report), both real-disaster calibration cases, lost-person matching (strong/possible/no-match, never "certain"), SMS/USSD channel-length enforcement, orchestrator wiring, and the FastAPI backend (including draining a live SSE simulation stream to completion) with mocked agents.
 
 The two newest modules are tested the same way — deterministically, and adversarially where they are safety-critical. The hydrology tests assert that the two cited Gangapur discharge observations band the way they were actually reported (the release that flooded Ramkund must come back DANGER), that a realistic mobility mix flips the same ghat from feasible to impossible, that results are ordered worst-first rather than alphabetically, that a non-exposed ghat is recorded as considered rather than silently dropped, and that a failed rainfall fetch never reads as zero. The rumor guardrail tests are deliberately hostile: every phrasing of absolute reassurance and every unsafe crowd instruction must be blocked, all violations reported rather than just the first, and — the case that matters most for false positives — naming the official channel to trust ("follow only announcements from Kumbh Rakshak staff") must *not* be mistaken for promising safety.
 
-All pass; see the repo root's full suite (436 tests across all four projects) alongside it.
+The incident-command layer is tested for invariants rather than specific numbers, because that is what makes an allocation auditable: a critical demand is never starved by a lower-severity one regardless of input order, a partial fill always carries a reason, unmet critical demands are lifted out where a commander will see them, and the same inputs always allocate identically. The conflict tests run against the real bundled geography, since the 1.8m Kalaram Mandir Marg lane is the entire reason that module exists — including the negative cases, that a quiet river and an empty neighbour raise nothing.
+
+All pass; see the repo root's full suite (468 tests across all four projects) alongside it.
 
 ## Honest limitations
 
@@ -249,6 +294,10 @@ All pass; see the repo root's full suite (436 tests across all four projects) al
 - **Flood lead times and egress rates are Trinetra's own illustrative planning estimates, not official figures.** The Gangapur discharge observations, the ~20,000-cusec danger threshold, and the Ramkund/Goda Ghat submersion in `trinetra/data/godavari_hydrology.json` are real and cited. The **travel-time-to-ghat lead times, the 25-people-per-minute-per-access-point egress rate, and the mobility slowdown factors are not** — they are documented assumptions chosen to be defensible, and every conclusion the module draws inherits them. The *relationship* the tool demonstrates (a realistic elderly-heavy crowd clears far slower than an able-bodied one, and that difference can flip a plan from feasible to impossible) is robust; the specific minute counts are not, and must be replaced with NTKMA's and the irrigation department's own hydrograph and survey data before any operational use.
 - **Dam discharge is entered by hand, not fed live.** There is no public real-time Gangapur release API this project can integrate with. `DamRelease` is a stable contract a real telemetry feed can be wired into unchanged.
 - **The rumor guardrail is pattern-based, and pattern-based means evadable.** It reliably catches the phrasings it knows — and a model can express "everything is fine" in wording no regex anticipates, in any of the nine supported languages. Its patterns are currently English-oriented, so a dangerous *Hindi or Marathi* draft is materially less likely to be caught than the same draft in English. It is a genuine last-line safety net, not a guarantee, and it is explicitly designed to be the *second*-to-last check: a human verifies before anything is broadcast.
+- **The responder pool is illustrative, and so is every allocation built on it.** The unit counts in `trinetra/tools/resources.py` (40 police, 12 medical, 8 ambulance, 6 rescue, 10 announcer) are planning-scale placeholders, not NTKMA's real per-shift deployment strength, and the units-per-severity mapping is a modelling convenience rather than a staffing formula. The *contention arithmetic* holds at any pool size — that is the point — but no specific "Ramkund got 4 of 6 announcers" figure should be quoted to NTKMA until the pool is replaced with their real numbers.
+- **The conflict scanner finds the conflicts it has rules for, and only those.** Four rules are implemented (narrow-lane evacuation, evacuation into a congested neighbour, a closure that traps an evacuation, and unfillable critical demand), all computed from the bundled route geometry. A contradiction that does not fit one of those shapes — a timing conflict between two desks' response windows, say — passes through undetected. A clean scan means "none of the four known patterns fired", never "this plan is consistent".
+- **The red team is advisory and unvalidated.** It has no ground truth to be scored against, so unlike the simulator there is no calibration case proving it catches real failures. On live runs it produced findings a human planner would want (a race condition between a lane block and the evacuation it was meant to precede; background inflow consuming a destination ghat's headroom), but "the reviewer found no material weaknesses" is not evidence a plan is sound.
+- **Incident command is slow — roughly four minutes end to end.** Each desk runs sequentially, then the commander, then the red team: six model calls in series. The desks are independent by construction and could run concurrently, which is the obvious optimisation and is not done here. Budget for it in a live demo.
 - **Vendor/volunteer/NMC-municipal personas are not built** in this pass — see "Who it's for" above for why and how the architecture extends to them.
 
 ## Deploying to AWS

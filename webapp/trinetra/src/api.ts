@@ -1,6 +1,7 @@
 import type {
   CalibrationResult,
   CommandBrief,
+  CommandResponse,
   FloodRiskResponse,
   NTKMAAdvisory,
   PilgrimGuidance,
@@ -120,4 +121,17 @@ export interface SimulationStatusResponse {
 
 export function fetchSimulation(jobId: string) {
   return getJSON<SimulationStatusResponse>(`/api/simulations/${jobId}`)
+}
+
+export interface CommandRequest {
+  discharge_cusecs?: number | null
+  occupancy?: Record<string, number>
+  elderly_share?: number
+  sos?: { description: string; location: string }[]
+  rumor?: { text: string; location: string; spreading_fast?: boolean } | null
+  run_red_team?: boolean
+}
+
+export function runIncidentCommand(body: CommandRequest) {
+  return postJSON<CommandResponse>('/api/command', body)
 }

@@ -291,3 +291,89 @@ def test_simulation_invalid_scenario_rejected(client):
 def test_get_unknown_simulation_job_returns_404(client):
     resp = client.get("/api/simulations/does-not-exist")
     assert resp.status_code == 404
+
+
+def _fake_command_plan(*args, **kwargs):
+    from trinetra.models import CommandDecision, IncidentCommandPlan, ResponderType
+
+    return IncidentCommandPlan(
+        headline="fake headline",
+        overall_risk=RiskLevel.CRITICAL,
+        decisions=[CommandDecision(
+            sequence=1, target_name="Ramkund", directive="fake directive",
+            responder_types=[ResponderType.POLICE], within_minutes=0,
+            justification="fake", contested=True,
+        )],
+        accepted_risks=["fake accepted risk"],
+        escalate_to_human=["fake escalation"],
+        narrative_summary="fake narrative",
+    )
+
+
+def _fake_critique(*args, **kwargs):
+    from trinetra.models import PlanCritique
+
+    return PlanCritique(weaknesses=[], single_points_of_failure=[], overall_verdict="fake verdict")
+
+
+def test_static_mount_is_registered_last_so_api_routes_are_reachable():
+    """Regression test for a real bug: the SPA catch-all is mounted at "/" and
+    matches everything, so any route registered after it is unreachable when
+    webapp/trinetra/dist exists. Appending an endpoint to the end of api.py
+    silently broke /api/command this way."""
+    paths = [getattr(r, "path", None) for r in api_module.app.routes]
+    api_paths = [p for p in paths if p and p.startswith("/api/")]
+    mount_index = paths.index("")
+    assert api_paths, "expected /api/* routes"
+    for path in api_paths:
+        assert paths.index(path) < mount_index, f"{path} is shadowed by the SPA catch-all mount"
+
+
+def test_command_endpoint_reconciles_desks_with_real_deterministic_layers(client, monkeypatch):
+    """The allocator and conflict scanner are real here - only the two LLM
+    layers are stubbed, matching the actual architecture."""
+    monkeypatch.setattr(api_module, "command_the_incident", _fake_command_plan)
+    monkeypatch.setattr(api_module, "critique_plan", _fake_critique)
+    monkeypatch.setattr(api_module, "fetch_recent_rainfall_mm", lambda *a, **k: (0.0, "stubbed"))
+    monkeypatch.setattr(api_module, "advise_on_compound_risk", _fake_hydrology_advisory)
+    monkeypatch.setattr(api_module, "advise_on_crowd_signals", _fake_brief)
+
+    resp = client.post("/api/command", json={
+        "discharge_cusecs": 22000,
+        "occupancy": {"ramkund": 8000, "panchavati_godavari": 4800},
+        "elderly_share": 0.4,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+
+    # The 2003 lane conflict must survive the whole round trip - it is the
+    # single most important thing this endpoint exists to surface.
+    kinds = {c["kind"] for c in body["conflicts"]["conflicts"]}
+    assert "narrow_lane_evacuation" in kinds
+    assert "evacuation_into_congestion" in kinds
+    assert body["allocation"]["allocations"]
+    assert body["plan"]["narrative_summary"] == "fake narrative"
+    assert body["critique"]["overall_verdict"] == "fake verdict"
+
+
+def test_command_endpoint_can_skip_the_red_team(client, monkeypatch):
+    monkeypatch.setattr(api_module, "command_the_incident", _fake_command_plan)
+    monkeypatch.setattr(api_module, "advise_on_crowd_signals", _fake_brief)
+    resp = client.post("/api/command", json={"occupancy": {"ramkund": 100}, "run_red_team": False})
+    assert resp.status_code == 200
+    assert resp.json()["critique"] is None
+
+
+def test_command_endpoint_rejects_an_empty_board(client):
+    resp = client.post("/api/command", json={})
+    assert resp.status_code == 400
+
+
+def test_command_endpoint_rejects_unknown_ghat(client):
+    resp = client.post("/api/command", json={"occupancy": {"not_a_real_ghat": 100}})
+    assert resp.status_code == 400
+
+
+def test_command_endpoint_rejects_incomplete_sos_entry(client):
+    resp = client.post("/api/command", json={"sos": [{"description": "collapsed"}]})
+    assert resp.status_code == 400

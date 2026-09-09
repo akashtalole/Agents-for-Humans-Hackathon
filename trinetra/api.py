@@ -35,7 +35,9 @@ from fastapi.staticfiles import StaticFiles
 from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
 from trinetra.agents.hydrology_advisor import advise_on_compound_risk
+from trinetra.agents.incident_commander import command_the_incident
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
+from trinetra.agents.red_team import critique_plan
 from trinetra.agents.rumor_analyst import assess_rumor
 from trinetra.agents.safety_triage import triage_sos_report
 from trinetra.config import model_status
@@ -52,10 +54,19 @@ from trinetra.models import (
     SOSReport,
 )
 from trinetra.tools.calibration import run_all_calibration_cases
+from trinetra.tools.conflicts import scan_for_conflicts
 from trinetra.tools.crowd_signals import manual_signal
 from trinetra.tools.geography import load_sites
 from trinetra.tools.hydrology import assess_compound_risk
 from trinetra.tools.rainfall import fetch_recent_rainfall_mm
+from trinetra.tools.resources import (
+    allocate,
+    default_resource_pool,
+    demands_from_command_brief,
+    demands_from_flood,
+    demands_from_rumor,
+    demands_from_sos,
+)
 from trinetra.tools.rumor_guardrail import scan_counter_message
 from trinetra.tools.simulator import simulate_scenario
 
@@ -343,6 +354,121 @@ async def get_calibration() -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(_executor, run_all_calibration_cases)
     return {"results": [r.model_dump(mode="json") for r in results]}
+
+
+# --- Sankat Nirnay: multi-hazard incident command ----------------------------
+
+
+def _run_incident_command(
+    signals: list[CrowdSignal],
+    discharge: int | None,
+    flood_occupancy: dict[str, int],
+    elderly_share: float,
+    sos_reports: list[SOSReport],
+    rumor: RumorReport | None,
+    run_red_team: bool,
+):
+    """Every desk runs independently, then the two deterministic passes
+    (allocate, then scan for conflicts) run over their combined output before
+    the commander agent is asked to judge anything."""
+    demands = []
+    brief = None
+    flood = None
+    triages: list[SafetyTriage] = []
+    rumor_assessment = None
+
+    if signals:
+        brief = advise_on_crowd_signals(signals, _GHATS)
+        demands += demands_from_command_brief(brief)
+
+    if discharge is not None and flood_occupancy:
+        flood, flood_advisory = _run_flood_assessment(discharge, flood_occupancy, elderly_share, True)
+        demands += demands_from_flood(flood, flood_advisory)
+
+    if sos_reports:
+        paired = [(r, triage_sos_report(r)) for r in sos_reports]
+        triages = [t for _, t in paired]
+        demands += demands_from_sos(paired)
+
+    if rumor is not None:
+        rumor_assessment = assess_rumor(rumor)
+        demands += demands_from_rumor(rumor_assessment, rumor.location)
+
+    allocation = allocate(default_resource_pool(), demands)
+    conflicts = scan_for_conflicts(
+        _GHATS, _ROUTES, flood=flood, brief=brief, signals=signals, allocation=allocation
+    )
+    plan = command_the_incident(
+        allocation=allocation, conflicts=conflicts, flood=flood, brief=brief,
+        triages=triages, rumor=rumor_assessment,
+    )
+    critique = critique_plan(plan, allocation, conflicts) if run_red_team else None
+    return plan, allocation, conflicts, critique
+
+
+@app.post("/api/command")
+async def incident_command(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Reconcile every live hazard against a finite responder pool.
+
+    Unlike the single-hazard endpoints, this one assumes the desks are
+    competing: it is the only place that can report that two individually
+    correct recommendations cannot both be executed.
+    """
+    raw_occupancy = body.get("occupancy") or {}
+    occupancy: dict[str, int] = {}
+    for ghat_id, count in raw_occupancy.items():
+        if ghat_id not in _GHATS:
+            raise HTTPException(status_code=400, detail=f"Unknown ghat_id: {ghat_id}")
+        occupancy[ghat_id] = int(count)
+
+    discharge = body.get("discharge_cusecs")
+    discharge = int(discharge) if discharge is not None else None
+
+    raw_sos = body.get("sos") or []
+    sos_reports = []
+    for entry in raw_sos:
+        description = (entry.get("description") or "").strip()
+        location = (entry.get("location") or "").strip()
+        if not description or not location:
+            raise HTTPException(status_code=400, detail="Each sos entry needs a description and a location")
+        sos_reports.append(SOSReport(
+            incident_type=IncidentType.OTHER, reporter_description=description, location=location,
+            involves_children_or_elderly=bool(entry.get("involves_children_or_elderly", False)),
+        ))
+
+    rumor = None
+    raw_rumor = body.get("rumor")
+    if raw_rumor:
+        text = (raw_rumor.get("text") or "").strip()
+        location = (raw_rumor.get("location") or "").strip()
+        if not text or not location:
+            raise HTTPException(status_code=400, detail="A rumor needs both text and a location")
+        rumor = RumorReport(text=text, location=location,
+                            spreading_fast=bool(raw_rumor.get("spreading_fast", False)))
+
+    if not occupancy and discharge is None and not sos_reports and rumor is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Nothing to command: provide at least one of occupancy, discharge_cusecs, sos, or rumor",
+        )
+
+    signals = [manual_signal(_GHATS[gid], count, 0, 0) for gid, count in occupancy.items()]
+    elderly_share = float(body.get("elderly_share", 0.4))
+    run_red_team = bool(body.get("run_red_team", True))
+
+    loop = asyncio.get_event_loop()
+    plan, allocation, conflicts, critique = await loop.run_in_executor(
+        _executor,
+        lambda: _run_incident_command(
+            signals, discharge, occupancy, elderly_share, sos_reports, rumor, run_red_team
+        ),
+    )
+    return {
+        "plan": plan.model_dump(mode="json"),
+        "allocation": allocation.model_dump(mode="json"),
+        "conflicts": conflicts.model_dump(mode="json"),
+        "critique": critique.model_dump(mode="json") if critique else None,
+    }
 
 
 # Mounted LAST so /api/* routes always take priority over the SPA catch-all.

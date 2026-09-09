@@ -11,11 +11,19 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from trinetra.config import model_status
-from trinetra.models import IncidentType, IndianLanguage, MobilityProfile, SimulationScenario
+from trinetra.models import (
+    CrowdSignal,
+    IncidentType,
+    IndianLanguage,
+    MobilityProfile,
+    SimulationScenario,
+)
 from trinetra.orchestrator import (
+    command_incident,
     TrinetraSession,
     ask_pilgrim,
     assess_flood_risk,
@@ -26,6 +34,7 @@ from trinetra.orchestrator import (
 )
 from trinetra.models import RumorReport, SOSReport
 from trinetra.rendering import (
+    render_incident_command_md,
     render_calibration_md,
     render_compound_risk_md,
     render_pilgrim_guidance_md,
@@ -33,6 +42,23 @@ from trinetra.rendering import (
     render_safety_triage_md,
     render_simulation_report_md,
 )
+
+
+def _parse_occupancy(pairs: list[str]) -> dict[str, int] | None:
+    """Parse GHAT_ID=COUNT arguments. Returns None (after printing why) on bad
+    input, so callers can exit 2 rather than guessing at a number."""
+    occupancy: dict[str, int] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            print(f"--occupancy entries must look like GHAT_ID=COUNT, got '{pair}'", file=sys.stderr)
+            return None
+        ghat_id, _, count = pair.partition("=")
+        try:
+            occupancy[ghat_id] = int(count)
+        except ValueError:
+            print(f"'{count}' is not a valid occupancy count for '{ghat_id}'", file=sys.stderr)
+            return None
+    return occupancy
 
 
 def _write(out_dir: str, filename: str, content: str) -> Path:
@@ -101,6 +127,24 @@ def main(argv: list[str] | None = None) -> int:
     rumor_parser.add_argument("--reported-by", default="field staff")
     rumor_parser.add_argument("--out", default="output")
 
+    cmd_parser = subparsers.add_parser(
+        "command",
+        help="Sankat Nirnay: reconcile every live hazard against the finite responder pool",
+    )
+    cmd_parser.add_argument("--discharge", type=int, help="Gangapur Dam discharge in cusecs, if the river is a factor")
+    cmd_parser.add_argument(
+        "--occupancy", nargs="+", default=[], metavar="GHAT_ID=COUNT",
+        help="Current occupancy per ghat, e.g. ramkund=8000 panchavati_godavari=4800",
+    )
+    cmd_parser.add_argument("--elderly-share", type=float, default=0.4)
+    cmd_parser.add_argument("--sos", nargs="*", default=[], metavar="LOCATION::DESCRIPTION",
+                            help="Open SOS incidents, e.g. 'Ramkund::elderly man collapsed'")
+    cmd_parser.add_argument("--rumor", help="A rumour currently circulating, if any")
+    cmd_parser.add_argument("--rumor-location", default="")
+    cmd_parser.add_argument("--no-rainfall", action="store_true")
+    cmd_parser.add_argument("--no-red-team", action="store_true", help="Skip the adversarial plan review")
+    cmd_parser.add_argument("--out", default="output")
+
     subparsers.add_parser("status", help="Show which model provider Trinetra will use")
 
     args = parser.parse_args(argv)
@@ -151,17 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(r.correctly_flagged for r in results) else 1
 
     if args.command == "flood-risk":
-        occupancy: dict[str, int] = {}
-        for pair in args.occupancy:
-            if "=" not in pair:
-                print(f"--occupancy entries must look like GHAT_ID=COUNT, got '{pair}'", file=sys.stderr)
-                return 2
-            ghat_id, _, count = pair.partition("=")
-            try:
-                occupancy[ghat_id] = int(count)
-            except ValueError:
-                print(f"'{count}' is not a valid occupancy count for '{ghat_id}'", file=sys.stderr)
-                return 2
+        occupancy = _parse_occupancy(args.occupancy)
+        if occupancy is None:
+            return 2
 
         elderly = max(0.0, min(1.0, args.elderly_share))
         mobility_mix = {
@@ -195,6 +231,62 @@ def main(argv: list[str] | None = None) -> int:
         print(md)
         _write(args.out, "rumor_assessment.md", md)
         return 0 if guardrail.passed else 1
+
+    if args.command == "command":
+        occupancy = _parse_occupancy(args.occupancy)
+        if occupancy is None:
+            return 2
+
+        signals = [
+            CrowdSignal(
+                ghat_id=ghat_id,
+                timestamp=datetime.utcnow(),
+                estimated_occupancy=count,
+                # Without a live feed we cannot know the flow rates, so this
+                # models a steady-state crowd rather than inventing a surge.
+                inflow_rate_per_min=0,
+                outflow_rate_per_min=0,
+            )
+            for ghat_id, count in occupancy.items()
+            if ghat_id in session.ghats
+        ]
+
+        sos_reports = []
+        for entry in args.sos:
+            location, _, description = entry.partition("::")
+            if not description:
+                print(f"--sos entries must look like LOCATION::DESCRIPTION, got '{entry}'", file=sys.stderr)
+                return 2
+            sos_reports.append(SOSReport(incident_type=IncidentType.OTHER,
+                                         reporter_description=description, location=location))
+
+        rumor = (
+            RumorReport(text=args.rumor, location=args.rumor_location or "unspecified")
+            if args.rumor
+            else None
+        )
+
+        elderly = max(0.0, min(1.0, args.elderly_share))
+        plan, allocation, conflicts, critique = command_incident(
+            session,
+            signals=signals or None,
+            flood_discharge_cusecs=args.discharge,
+            flood_occupancy=occupancy or None,
+            sos_reports=sos_reports or None,
+            rumor=rumor,
+            mobility_mix={
+                MobilityProfile.ELDERLY_OR_MOBILITY_LIMITED: elderly,
+                MobilityProfile.STANDARD: 1.0 - elderly,
+            },
+            fetch_rainfall=not args.no_rainfall,
+            run_red_team=not args.no_red_team,
+        )
+        md = render_incident_command_md(plan, allocation, conflicts, critique)
+        print(md)
+        _write(args.out, "incident_command.md", md)
+        # Non-zero when the plan carries a call a human must make - an
+        # unresolved critical conflict or an unfillable critical demand.
+        return 1 if (conflicts.has_critical or allocation.unmet_critical) else 0
 
     return 1
 

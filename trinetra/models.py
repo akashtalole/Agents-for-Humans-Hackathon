@@ -440,3 +440,167 @@ class RumorGuardrailResult(BaseModel):
     passed: bool
     findings: list[RumorGuardrailFinding] = Field(default_factory=list)
     summary: str
+
+
+# --------------------------------------------------------------------------
+# Sankat Nirnay: multi-hazard incident command
+#
+# Every agent above answers ONE question in isolation. A real NTKMA control
+# room during a Shahi Snan faces all of them at once - a dam release, several
+# SOS incidents, a spreading rumor, and two ghats going critical - competing
+# for the same finite responder units. Two failure modes emerge from that
+# concurrency that no single-hazard advisor can see:
+#
+#   1. Resource over-commitment. Each advisor independently says "deploy
+#      personnel now". Summed, they can request more units than exist, and an
+#      operator following all of them has silently under-resourced the worst
+#      incident.
+#   2. Contradictory directives. The flood advisor clears Ramkund toward
+#      Panchavati while the crowd advisor calls Panchavati critical. Both are
+#      correct alone; executing both pushes a flood evacuation into a crush -
+#      which is how the 1.8m Kalaram Mandir Marg lane killed 39 people in 2003.
+#
+# Both are detected in pure code below, before any model is asked to judge.
+# --------------------------------------------------------------------------
+
+
+class ResponderType(str, Enum):
+    """Kinds of finite unit an NTKMA control room actually dispatches."""
+
+    POLICE = "police"
+    MEDICAL = "medical"
+    AMBULANCE = "ambulance"
+    RESCUE = "rescue"
+    ANNOUNCER = "announcer"
+
+
+class ResourcePool(BaseModel):
+    """How many units of each type are available right now.
+
+    ILLUSTRATIVE PLANNING FIGURES, not NTKMA's actual deployment strength -
+    same standing caveat as sites.json's capacities. The point of the module
+    is the contention arithmetic, which holds at any pool size.
+    """
+
+    units: dict[ResponderType, int]
+    note: str = Field(
+        default="Illustrative pool; replace with NTKMA's real per-shift deployment strength.",
+    )
+
+
+class ResourceDemand(BaseModel):
+    """One responder request, derived deterministically from an advisory."""
+
+    demand_id: str
+    source: str = Field(description="Which desk raised it, e.g. 'flood_advisory', 'command_brief'")
+    target_id: str
+    target_name: str
+    responder_type: ResponderType
+    units_requested: int
+    severity: RiskLevel
+    urgency_minutes: int
+    rationale: str
+
+
+class ResourceAllocation(BaseModel):
+    """What a demand actually got. A partially-met or unmet demand always
+    carries an explicit reason - the module never silently under-allocates."""
+
+    demand_id: str
+    source: str
+    target_name: str
+    responder_type: ResponderType
+    units_requested: int
+    units_granted: int
+    severity: RiskLevel
+    fully_met: bool
+    shortfall_reason: str = ""
+
+
+class AllocationPlan(BaseModel):
+    pool: dict[ResponderType, int]
+    allocations: list[ResourceAllocation]
+    remaining: dict[ResponderType, int]
+    contended_types: list[ResponderType] = Field(
+        default_factory=list, description="Types where demand exceeded supply"
+    )
+    unmet_critical: list[str] = Field(
+        default_factory=list,
+        description="Human-readable lines for CRITICAL demands that could not be fully met - "
+        "the decisions a human commander must make personally",
+    )
+    summary: str = ""
+
+
+class ConflictKind(str, Enum):
+    EVACUATION_INTO_CONGESTION = "evacuation_into_congestion"
+    NARROW_LANE_EVACUATION = "narrow_lane_evacuation"
+    CLOSURE_TRAPS_EVACUATION = "closure_traps_evacuation"
+    RESOURCE_CONTENTION = "resource_contention"
+
+
+class DirectiveConflict(BaseModel):
+    """Two individually-correct recommendations that cannot both be executed."""
+
+    kind: ConflictKind
+    severity: RiskLevel
+    target_name: str
+    sources: list[str]
+    detail: str
+
+
+class ConflictScanResult(BaseModel):
+    conflicts: list[DirectiveConflict] = Field(default_factory=list)
+    summary: str = ""
+
+    @property
+    def has_critical(self) -> bool:
+        return any(c.severity == RiskLevel.CRITICAL for c in self.conflicts)
+
+
+class CommandDecision(BaseModel):
+    """One resolved call. `contested` marks a decision the deterministic layer
+    could only flag, not settle - the ones a human commander owns."""
+
+    sequence: int = Field(description="Execution order, 1 = first")
+    target_name: str
+    directive: str = Field(description="What to do, concretely")
+    responder_types: list[ResponderType] = Field(default_factory=list)
+    within_minutes: int
+    justification: str
+    contested: bool = Field(
+        default=False, description="True when this resolves a detected conflict or an unmet critical demand"
+    )
+
+
+class IncidentCommandPlan(BaseModel):
+    """Sankat Nirnay's reconciled operational picture across every live hazard."""
+
+    headline: str = Field(description="For an operator with 30 seconds")
+    overall_risk: RiskLevel
+    decisions: list[CommandDecision]
+    accepted_risks: list[str] = Field(
+        default_factory=list,
+        description="What this plan knowingly leaves unresourced or unaddressed, stated plainly",
+    )
+    escalate_to_human: list[str] = Field(
+        default_factory=list, description="Calls the commander must make personally"
+    )
+    narrative_summary: str
+
+
+class PlanWeakness(BaseModel):
+    weakness: str
+    breaks_under: str = Field(description="The concrete condition that makes this plan fail")
+    severity: RiskLevel
+    suggested_mitigation: str
+
+
+class PlanCritique(BaseModel):
+    """An adversarial review of a finished command plan - the same
+    independent-cross-check discipline the other three projects apply to
+    their reports, aimed at an operational plan instead of a document."""
+
+    weaknesses: list[PlanWeakness] = Field(default_factory=list)
+    single_points_of_failure: list[str] = Field(default_factory=list)
+    overall_verdict: str = Field(description="Whether the plan is sound enough to execute, and why")

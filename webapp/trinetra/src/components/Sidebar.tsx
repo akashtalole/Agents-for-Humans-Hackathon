@@ -7,6 +7,7 @@ const NAV: { key: ViewKey; label: string; hindi: string; icon: string }[] = [
   { key: 'twin', label: 'Bhavishya Netra', hindi: 'भविष्य नेत्र', icon: '🔮' },
   { key: 'flood', label: 'Godavari Flood', hindi: 'गोदावरी', icon: '🌊' },
   { key: 'rumor', label: 'Rumor Desk', hindi: 'अफवाह', icon: '📢' },
+  { key: 'command', label: 'Incident Command', hindi: 'संकट निर्णय', icon: '🧭' },
   { key: 'calibration', label: 'Calibration', hindi: 'सत्यापन', icon: '✓' },
 ]
 
