@@ -19,6 +19,31 @@ Alternatives if you want a different emphasis:
 
 ---
 
+## Live demo link
+
+**https://tr-f84a1a73e8154b1c88e4d700c96ccb64.ecs.us-east-1.on.aws**
+
+The rules call a live demo link out explicitly as strengthening Technical
+Implementation scoring — put it in the "Try it out" field.
+
+Running on Amazon ECS Express Mode, image built by AWS CodeBuild, deployed from
+AWS CloudShell with no local Docker. Verified serving at the time of writing:
+
+```console
+$ curl -s <url>/api/status
+{"status_text":"Anthropic API direct (claude-sonnet-4-5-20250929)","ready":true}
+
+$ curl -s <url>/api/calibration
+Nashik Kumbh stampede, Kalaram Mandir  -> critical  (real deaths: 39)
+Prayagraj Maha Kumbh stampede, Sangam  -> critical  (real deaths: 30)
+```
+
+**The best 20 seconds of the demo** is the Calibration view: it makes no model
+call, so it loads instantly, and it shows the crowd simulator correctly flagging
+both real historical disasters as CRITICAL — in the deployed container.
+
+---
+
 ## Track
 
 **Good Neighbor Agents.**
@@ -307,8 +332,11 @@ in the video.
 ## Optional bonus: builder.aws blog post
 
 Up to **0.6 extra points** (0.2 per piece, Stage Two only). Posts should use
-**"Agents for Humans" in the title**. Three we are well placed to write, each
-grounded in something that actually happened:
+**"Agents for Humans" in the title**.
+
+**The first one is written**: [`BLOG_BUILDER_AWS.md`](BLOG_BUILDER_AWS.md) —
+publication-ready, needs only your byline. The other two are outlined below,
+each grounded in something that actually happened:
 
 1. **"Agents for Humans: shipping a multi-agent platform from AWS CloudShell
    with zero local Docker"** — CodeBuild-built images into ECS Express Mode, the
@@ -342,5 +370,10 @@ Verified against the code at submission time, not recalled:
 
 **Still to do before submitting:** record the video (**5 minutes maximum**,
 YouTube or Vimeo), which must show the project working end-to-end and pitch the
-problem, audience and why it matters. Add your AWS Builder ID. Confirm the repo
-is public with its MIT licence — it is. Decide the track.
+problem, audience and why it matters — the live URL above makes that much
+easier to film. Add your AWS Builder ID. Confirm the repo is public with its
+MIT licence — it is. Decide the track.
+
+Note that the live service **has no authentication** and calls a paid model
+API. Keep an eye on spend while the submission is public, and run
+`deploy/ecs-express/teardown_trinetra_all.sh` when judging closes.

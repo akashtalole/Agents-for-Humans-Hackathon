@@ -109,3 +109,4 @@ nav:
       - Trinetra:
           - Testing: docs/trinetra/TESTING.md
           - Devpost submission: docs/trinetra/DEVPOST_SUBMISSION.md
+          - builder.aws blog draft: docs/trinetra/BLOG_BUILDER_AWS.md

@@ -8,11 +8,16 @@ install, no Docker daemon, nothing to configure on your own machine.
 > Every one supports `--dry-run`, which prints what it would do and touches
 > nothing — use it first. Run the matching `teardown.sh` when you're finished.
 >
-> **None of these scripts has been run against a live AWS account.** They are
+> **Deployment status, per path.** The **dashboard** path
+> (`ecs-express/trinetra/`) **has been deployed successfully** and is live at
+> <https://tr-f84a1a73e8154b1c88e4d700c96ccb64.ecs.us-east-1.on.aws> — CodeBuild built the image, ECS Express provisioned the service, and
+> the Anthropic provider pin came through correctly.
+>
+> The other three paths (`ecs-express/trinetra-a2a/`, `cloudshell/`,
+> `trinetra/`) have **not** been run against a live account. They are
 > syntax-checked, shellcheck-clean, dry-runnable, and their CLI parameters come
-> from the AWS CLI command reference — but no deployment has actually been
-> performed. Read the script before you run it, and watch the first CodeBuild
-> build's logs closely.
+> from the AWS CLI command reference — but no deployment has been performed.
+> Read the script before running one, and watch the first CodeBuild log closely.
 
 ## What can and cannot be deployed from CloudShell
 
