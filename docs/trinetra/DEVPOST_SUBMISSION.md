@@ -339,7 +339,8 @@ piece at 0.2 each, so both are worth posting:
 
 1. [`BLOG_BUILDER_AWS.md`](BLOG_BUILDER_AWS.md) — **the primary one.**
    Strands Agents, the multi-agent architecture, and how it helps Nashik
-   2027, with the AWS work threaded through.
+   2027, with the AWS work threaded through. Written to a **3000-character**
+   limit (2981 characters); the earlier long-form draft is in git history.
 2. [`BLOG_BUILDER_AWS_DEPLOYMENT.md`](BLOG_BUILDER_AWS_DEPLOYMENT.md) — the
    AWS deployment mechanics in depth: CloudShell + CodeBuild + ECS Express,
    the two-phase agent-card deploy, and three bugs the CLI reference found.
