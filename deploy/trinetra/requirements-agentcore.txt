@@ -1,0 +1,11 @@
+# Runtime dependencies for agentcore_app_trinetra.py, used by
+# `agentcore configure --requirements-file` when building the deployment
+# package. Kept separate from pyproject.toml's dependency list only because
+# the AgentCore CLI expects a plain requirements.txt-style file rather than
+# resolving pyproject.toml itself - versions below are kept in sync with
+# pyproject.toml's [project.dependencies].
+strands-agents[anthropic]>=1.50.0
+strands-agents-tools>=0.2.0
+pydantic>=2.4.0
+python-dotenv>=1.0.0
+bedrock-agentcore>=0.1.0

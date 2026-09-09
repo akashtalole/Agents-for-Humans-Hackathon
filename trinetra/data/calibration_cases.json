@@ -1,0 +1,41 @@
+{
+  "_citation_note": "These are real, documented historical crowd-crush incidents at Kumbh gatherings. Trinetra's simulator is calibrated against them: if replaying a scenario built from these documented conditions does not come back CRITICAL, the simulator's risk model is not trustworthy enough to use for real planning. Casualty figures are the officially reported counts; independent investigations have in some cases found higher counts (noted where applicable) - see TRINETRA.md's honest-limitations section.",
+  "cases": [
+    {
+      "case_id": "nashik_2003",
+      "name": "Nashik Kumbh stampede, Kalaram Mandir",
+      "year": 2003,
+      "location": "Kalaram Mandir Marg, Panchavati, Nashik",
+      "deaths": 39,
+      "cause_summary": "A barricade at a gully near Kalaram Mandir collapsed under crowd pressure after sadhus threw coins toward devotees, triggering a crush on a lane narrower than 6 feet (~1.8m) during a record 5-million-person Shahi Snan day.",
+      "source": "Al Jazeera, 'Indian stampede leaves 39 dead' (Aug 27, 2003); Tribune India, Aug 28, 2003 front-page coverage.",
+      "scenario": {
+        "name": "Nashik 2003 replay: narrow-lane surge at Kalaram Mandir Marg",
+        "description": "A high-density Shahi Snan-equivalent day with a sudden localized surge (crowd converging toward a narrow single-file lane) replaying the documented conditions of the 2003 incident.",
+        "based_on_real_incident": "Nashik Kumbh stampede, Aug 27, 2003 - see cause_summary above",
+        "total_pilgrims": 500000,
+        "duration_minutes": 180,
+        "peak_inflow_multiplier": 3.2,
+        "active_ghat_ids": ["kalaram_marg", "ramkund"]
+      }
+    },
+    {
+      "case_id": "prayagraj_2025",
+      "name": "Prayagraj Maha Kumbh stampede, Sangam Nose",
+      "year": 2025,
+      "location": "Sangam Nose, Prayagraj (Maha Kumbh, not Nashik - included as the most recent, best-documented Kumbh-scale crowd-crush calibration case available)",
+      "deaths": 30,
+      "cause_summary": "Pre-dawn barricades broke under crowd pressure during the Mauni Amavasya Amrit Snan as a massive crowd converged on the Sangam Nose bathing point between 1-2 AM; official count was 30 dead, 60 injured, though a BBC investigation identified at least 82 deaths.",
+      "source": "CBS News (Jan 29, 2025); Wikipedia '2025 Prayag Maha Kumbh Mela crowd crush'; Deccan Herald live coverage.",
+      "scenario": {
+        "name": "Prayagraj 2025 replay: pre-dawn peak-auspicious-day surge",
+        "description": "An overnight/pre-dawn surge on the single most auspicious bathing day of the cycle (Mauni Amavasya-equivalent), replaying the documented barricade-failure conditions.",
+        "based_on_real_incident": "Prayagraj Maha Kumbh stampede, Jan 29, 2025 - see cause_summary above",
+        "total_pilgrims": 2000000,
+        "duration_minutes": 120,
+        "peak_inflow_multiplier": 4.5,
+        "active_ghat_ids": ["ramkund", "kushavarta"]
+      }
+    }
+  ]
+}

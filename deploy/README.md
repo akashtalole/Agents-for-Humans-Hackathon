@@ -91,3 +91,15 @@ For ClaimClarity specifically, also consider swapping
 `claimclarity/tools/icd10.py` for a live ICD-10 API/MCP-backed lookup instead
 of the bundled demo reference set if you go beyond the example scenario —
 see that file's docstring.
+
+## `ecs-express/trinetra-a2a/` — Trinetra as an A2A agent
+
+Publishes Trinetra over the [Agent2Agent](https://a2a-protocol.org/) protocol on
+Amazon ECS Express Mode, so agents operated by other organisations (railway,
+hospital, irrigation) can discover and call it at a managed HTTPS URL.
+
+Unlike the dashboard deployment beside it, this is a **machine-facing** surface
+and deploys in two phases: create the service, read the real public endpoint out
+of the service's `ingressPaths[]`, then update it so the published agent card
+advertises an address peers can actually reach. It ships with **no
+authentication** — see that directory's README before exposing it.

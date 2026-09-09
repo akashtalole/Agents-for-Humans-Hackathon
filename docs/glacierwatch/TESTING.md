@@ -84,3 +84,25 @@ Open the URL Streamlit prints (typically `http://localhost:8501`). Click **Run G
   ```bash
   GLACIERWATCH_RUN_INTEGRATION=1 pytest tests/test_glacierwatch_pipeline_integration.py
   ```
+
+## Also worth running: the React web UI
+
+These instructions predate the FastAPI + React interface, which is the one
+most people will actually look at. It is a separate surface from the
+Streamlit demo above, served from a single process (no CORS setup), and it
+needs the frontend built once first:
+
+```bash
+pip install -e ".[api]"
+cd webapp/glacierwatch && npm install && npm run build && cd -
+python server_glacierwatch.py          # -> http://localhost:8000
+```
+
+Requires Node 20+. All four projects' servers use port 8000, so run one at a
+time — and if a page looks stale, check for a leftover process with
+`lsof -i :8000` before assuming a code change had no effect.
+
+See [`../../SETUP.md`](../../SETUP.md) for the full setup guide and
+[`../../TESTING.md`](../../TESTING.md) for the repo-wide testing reference,
+including what the offline suite does and does not verify.
+

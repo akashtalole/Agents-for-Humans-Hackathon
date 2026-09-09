@@ -115,3 +115,25 @@ under `docs/claimclarity/` in this branch — screenshots, the architecture
 diagram, this file — documents one additional, genuine, live, human-run
 verification pass on top of that automated suite, including the UI bug
 found along the way; it is not a substitute for running `pytest` yourself.
+
+## Also worth running: the React web UI
+
+These instructions predate the FastAPI + React interface, which is the one
+most people will actually look at. It is a separate surface from the
+Streamlit demo above, served from a single process (no CORS setup), and it
+needs the frontend built once first:
+
+```bash
+pip install -e ".[api]"
+cd webapp/claimclarity && npm install && npm run build && cd -
+python server_claimclarity.py          # -> http://localhost:8000
+```
+
+Requires Node 20+. All four projects' servers use port 8000, so run one at a
+time — and if a page looks stale, check for a leftover process with
+`lsof -i :8000` before assuming a code change had no effect.
+
+See [`../../SETUP.md`](../../SETUP.md) for the full setup guide and
+[`../../TESTING.md`](../../TESTING.md) for the repo-wide testing reference,
+including what the offline suite does and does not verify.
+

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agents-for-humans-hackathon"
 version = "0.1.0"
-description = "Three Strands Agents SDK submissions: BidWright (RFP compliance & proposal drafting), ClaimClarity (insurance denial & appeal copilot), and GlacierWatch (Himalayan glacial-hazard monitoring triage)."
+description = "Strands Agents SDK submissions: BidWright (RFP compliance & proposal drafting), ClaimClarity (insurance denial & appeal copilot), GlacierWatch (Himalayan glacial-hazard monitoring triage), and Trinetra (Nashik Kumbh Mela 2027 pilgrim/administration/crowd-simulation platform)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -24,16 +24,21 @@ dependencies = [
 ui = ["streamlit>=1.38.0"]
 api = ["fastapi>=0.115.0", "uvicorn[standard]>=0.32.0", "python-multipart>=0.0.9"]
 agentcore = ["bedrock-agentcore>=0.1.0"]
+# Agent2Agent interoperability: lets Trinetra publish an agent card that
+# third-party agents can discover, and call registered peers itself.
+a2a = ["strands-agents[a2a]>=1.0.0"]
 dev = ["pytest>=8.0.0"]
 
 [project.scripts]
 bidwright = "bidwright.cli:main"
 claimclarity = "claimclarity.cli:main"
 glacierwatch = "glacierwatch.cli:main"
+trinetra = "trinetra.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["bidwright*", "claimclarity*", "glacierwatch*"]
+include = ["bidwright*", "claimclarity*", "glacierwatch*", "trinetra*"]
 
 [tool.setuptools.package-data]
 claimclarity = ["data/*.json"]
 glacierwatch = ["data/*.json"]
+trinetra = ["data/*.json"]
