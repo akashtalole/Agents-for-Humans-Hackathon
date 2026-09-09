@@ -242,12 +242,23 @@ fi
 
 # --- ECS Express Gateway Service: create or update -------------------------
 
-PRIMARY_CONTAINER=$(python3 -c "
-import json
+PRIMARY_CONTAINER=$(ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" ECR_URI="$ECR_URI" python3 -c "
+import json, os
+
+env = []
+key = os.environ.get('ANTHROPIC_API_KEY', '')
+if key:
+    # Pinned explicitly rather than relying on config.py's auto-detection, so
+    # the deployed service's provider is auditable from the service definition
+    # instead of inferred at runtime. Only set when a key actually exists - a
+    # pin with no key makes get_model() raise on startup.
+    env.append({'name': 'TRINETRA_MODEL_PROVIDER', 'value': 'anthropic'})
+    env.append({'name': 'ANTHROPIC_API_KEY', 'value': key})
+
 print(json.dumps({
-    'image': '${ECR_URI}:latest',
+    'image': os.environ['ECR_URI'] + ':latest',
     'containerPort': 8000,
-    'environment': [{'name': 'ANTHROPIC_API_KEY', 'value': '''${ANTHROPIC_API_KEY:-}'''}],
+    'environment': env,
 }))
 ")
 

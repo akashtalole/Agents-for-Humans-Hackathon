@@ -44,12 +44,15 @@ local-Docker ECS one.
   No API key is involved; the agent's IAM execution role authorises the calls.
 - **Anthropic API key** — set `ANTHROPIC_API_KEY` in your CloudShell shell
   before running, and pass `--model-provider anthropic`. See
-  [the note on how the key travels](#a-note-on-the-anthropic-key) below.
+  [Deploying Trinetra with the Anthropic API](#deploying-trinetra-with-the-anthropic-api-no-bedrock)
+  below.
 
-**2. For the two ECS Express paths only — a one-time GitHub source credential.**
-CodeBuild clones this repo over a `GITHUB` source. If your account has never
-used that source type in this region, the build fails with an error mentioning
-GitHub source credentials or "not connected". Link one once:
+**2. For the two ECS Express paths only — possibly a one-time GitHub source
+credential.** CodeBuild clones this repo over a `GITHUB` source. The repo is
+**public**, so CodeBuild can usually clone it with no credential at all. But if
+your account has never used a `GITHUB` source in this region, the build can
+still fail with an error mentioning source credentials or "not connected". If
+that happens, link one once — it is per account and region, not per build:
 
 ```bash
 aws codebuild import-source-credentials \
@@ -59,7 +62,7 @@ aws codebuild import-source-credentials \
 
 Or use the CodeBuild console's "Connect to GitHub" flow once, then re-run.
 The scripts deliberately do not automate this — it would mean handling your
-GitHub token.
+GitHub token. Try the deploy first; only do this if it actually complains.
 
 **3. Region.** AgentCore Runtime's regional availability changes over time.
 `setup.sh` warns (does not block) if your region isn't on its known-good list.
@@ -198,6 +201,121 @@ The card's `url` field should match the address you curled. If it shows a
 container-internal address, phase 2 didn't finish — re-run `./setup.sh`, which
 is idempotent.
 
+### E. Everything Trinetra, in one command
+
+Paths C and D in a single run, both built on CodeBuild:
+
+```bash
+cd deploy/ecs-express
+
+./deploy_trinetra_all.sh --dry-run
+./deploy_trinetra_all.sh
+```
+
+It runs the dashboard first, then the A2A agent, and prints both real URLs at
+the end. A failure in one does **not** abort the other — if the dashboard
+deploys and the A2A agent does not, you keep the thing that worked and get told
+plainly which failed. Use `--only dashboard` or `--only a2a` to run just one.
+
+**The frontend is already included.** `Dockerfile.trinetra.webapp` is a
+multi-stage build: Node compiles the React app, and the built bundle is copied
+into the Python image where FastAPI serves it from the same process. There is
+no separate frontend deployment, and no CORS configuration, because the API and
+the static bundle share one origin. CodeBuild does the Node build for you —
+you do not need `npm` anywhere.
+
+Tear both down together:
+
+```bash
+./teardown_trinetra_all.sh
+```
+
+## Deploying Trinetra with the Anthropic API (no Bedrock)
+
+If you have an Anthropic API key and would rather not enable Bedrock model
+access, all three Trinetra paths support it. The mechanics differ slightly, so
+they are collected here.
+
+**Set the key once in your CloudShell session.** Everything below reads it
+from the environment:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The two ECS scripts also fall back to reading `ANTHROPIC_API_KEY` from a `.env`
+in the repo root if the variable is unset, which is convenient locally but
+means you should check what is actually picked up before deploying.
+
+### The dashboard (what most people want)
+
+```bash
+cd deploy/ecs-express/trinetra
+./setup.sh --dry-run
+./setup.sh
+```
+
+No flag needed — the script detects the key and pins
+`TRINETRA_MODEL_PROVIDER=anthropic` on the service, so the provider is visible
+in the ECS service definition rather than inferred at runtime. If no key is
+found it warns and continues; the service then starts but reports
+`No credentials found` at `/api/status`.
+
+### The A2A agent
+
+```bash
+cd deploy/ecs-express/trinetra-a2a
+./setup.sh --dry-run
+./setup.sh
+```
+
+Same detection. Note this path updates the service twice (see path D above),
+and the key is re-applied on the second update along with the public URL.
+
+### The headless action API (AgentCore)
+
+This one needs an explicit flag, because it defaults to Bedrock:
+
+```bash
+cd deploy/trinetra
+./setup.sh --model-provider anthropic
+```
+
+### Verifying which provider a deployment actually used
+
+For the dashboard, the status endpoint answers directly:
+
+```bash
+curl https://<service-url>/api/status
+# {"status_text":"Anthropic API direct (claude-sonnet-4-5-20250929)","ready":true}
+```
+
+Or read it back off the service definition without any model call:
+
+```bash
+aws ecs describe-express-gateway-service --service-arn <arn> --region <region> \
+  --query 'service.activeConfigurations[].primaryContainer.environment[?name==`TRINETRA_MODEL_PROVIDER`].value' \
+  --output text
+```
+
+### How the key travels, and where it is visible
+
+- **CodeBuild never receives it.** The image is built with no credential baked
+  in; the key is applied only when the ECS service is created or updated.
+- **On ECS** it is a plain environment variable on the service definition, so
+  anyone with `ecs:DescribeExpressGatewayService` in your account can read it.
+  That is normal for this pattern but worth knowing — for anything beyond a
+  demo, move it to Secrets Manager and reference it via the container
+  definition's `secrets` field instead of `environment`.
+- **On AgentCore** the key goes on the command line of a single
+  `agentcore deploy --env` invocation. The AgentCore CLI has no Secrets
+  Manager or SSM integration for this, so that is the only mechanism available.
+- **Nothing prints it.** The scripts redact the value in dry-run output.
+
+If passing a raw key is unacceptable for your account, use Bedrock instead —
+there the agent's IAM execution role authorises the model calls and no key
+exists to leak.
+
 ## Step 3 — Tear down
 
 **Do this when you're done.** Each path has its own teardown, and each reads
@@ -234,22 +352,6 @@ Each deployment records what it created, so teardown knows what to remove:
 limit), so these survive a session timeout and teardown still works when you
 come back. They are the only record of what was created — if you lose one,
 you're deleting resources by hand in the console.
-
-## A note on the Anthropic key
-
-The key is never baked into an image and CodeBuild never receives it. The
-scripts redact it even in `--dry-run` output.
-
-For the **ECS Express** paths it is passed as a runtime environment variable
-when the service is created or updated — a step separate from the image build.
-
-For the **AgentCore** paths, `agentcore deploy --env KEY=VALUE` is the only
-mechanism the AgentCore CLI supports: it has no native Secrets Manager or SSM
-Parameter Store integration for this, so the raw value goes on the command line
-for that one command. That is a real limitation of the tool, stated here rather
-than hidden. If that is unacceptable for your account, use `--model-provider
-bedrock`, where model calls are authorised by the agent's IAM execution role
-and no key exists to leak.
 
 ## Troubleshooting
 

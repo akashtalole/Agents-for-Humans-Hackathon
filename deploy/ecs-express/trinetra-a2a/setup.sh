@@ -271,12 +271,23 @@ fi
 
 # --- ECS Express Gateway Service: create or update -------------------------
 
-PRIMARY_CONTAINER=$(python3 -c "
-import json
+PRIMARY_CONTAINER=$(ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" ECR_URI="$ECR_URI" python3 -c "
+import json, os
+
+env = []
+key = os.environ.get('ANTHROPIC_API_KEY', '')
+if key:
+    # Pinned explicitly rather than relying on config.py's auto-detection, so
+    # the deployed service's provider is auditable from the service definition
+    # instead of inferred at runtime. Only set when a key actually exists - a
+    # pin with no key makes get_model() raise on startup.
+    env.append({'name': 'TRINETRA_MODEL_PROVIDER', 'value': 'anthropic'})
+    env.append({'name': 'ANTHROPIC_API_KEY', 'value': key})
+
 print(json.dumps({
-    'image': '${ECR_URI}:latest',
+    'image': os.environ['ECR_URI'] + ':latest',
     'containerPort': 9100,
-    'environment': [{'name': 'ANTHROPIC_API_KEY', 'value': '''${ANTHROPIC_API_KEY:-}'''}],
+    'environment': env,
 }))
 ")
 
@@ -348,10 +359,12 @@ print(json.dumps({
     'image': os.environ['ECR_URI'] + ':latest',
     'containerPort': 9100,
     'environment': [
-        {'name': 'ANTHROPIC_API_KEY', 'value': os.environ.get('ANTHROPIC_API_KEY', '')},
         {'name': 'TRINETRA_A2A_PUBLIC_URL', 'value': os.environ['SERVICE_URL']},
         {'name': 'TRINETRA_A2A_PORT', 'value': '9100'},
-    ],
+    ] + ([
+        {'name': 'TRINETRA_MODEL_PROVIDER', 'value': 'anthropic'},
+        {'name': 'ANTHROPIC_API_KEY', 'value': os.environ['ANTHROPIC_API_KEY']},
+    ] if os.environ.get('ANTHROPIC_API_KEY') else []),
 }))
 ")
         run aws ecs update-express-gateway-service \
