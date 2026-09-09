@@ -238,3 +238,6 @@ webapp/*/dist/
 # Claude Code local state (e.g. subagent worktree checkouts)
 /.claude/
 
+
+# MkDocs staging + built site (see scripts/build_docs.py)
+.mkdocs-build/

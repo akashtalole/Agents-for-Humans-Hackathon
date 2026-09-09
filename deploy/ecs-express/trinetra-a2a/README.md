@@ -9,8 +9,8 @@ image, a task execution role, and an infrastructure role.
 
 The image is built by **AWS CodeBuild**, not locally, so the whole path runs
 from AWS CloudShell with no Docker daemon — the same reasoning as the sibling
-[`../trinetra/`](../trinetra/) dashboard deployment and
-[`../../cloudshell/`](../../cloudshell/)'s AgentCore path.
+[`../trinetra/`](../trinetra/README.md) dashboard deployment and
+[`../../cloudshell/`](../../cloudshell/README.md)'s AgentCore path.
 
 ```bash
 ./setup.sh --dry-run          # see what it would do, touching nothing
@@ -66,14 +66,14 @@ resolve it, fail, and have no way to tell a bad address from a service that is
 merely down. An earlier version of the sibling dashboard script printed a
 guessed `https://<service>.ecs.<region>.on.aws/` pattern; that has been replaced
 with a real `describe-express-gateway-service` query in
-[`../trinetra/common.sh`](../trinetra/common.sh)'s `describe_service_url`.
+[`../trinetra/common.sh`](https://github.com/akashtalole/Agents-for-Humans-Hackathon/blob/main/deploy/ecs-express/trinetra/common.sh)'s `describe_service_url`.
 
 ## What gets created
 
 | Resource | Name | Notes |
 |---|---|---|
 | ECR repository | `trinetra-a2a` | holds the built image |
-| CodeBuild project | `trinetra-a2a-build` | builds `Dockerfile.trinetra.a2a` via [`buildspec.yml`](buildspec.yml) |
+| CodeBuild project | `trinetra-a2a-build` | builds `Dockerfile.trinetra.a2a` via [`buildspec.yml`](https://github.com/akashtalole/Agents-for-Humans-Hackathon/blob/main/deploy/ecs-express/trinetra-a2a/buildspec.yml) |
 | CodeBuild service role | `trinetra-codebuild-a2a-role` | ECR push + CloudWatch Logs write |
 | ECS Express service | `trinetra-a2a` | Fargate + managed ALB + HTTPS, port 9100 |
 | IAM roles (account-global) | `ecsTaskExecutionRole`, `ecsInfrastructureRoleForExpressServices` | shared with every Express service in the account; **never deleted** by `teardown.sh` |
@@ -100,7 +100,7 @@ is a `0.0.0.0` or container-internal address, phase 2 did not complete — re-ru
 
 To let another agent use Trinetra, give its operator that agent-card URL. To let
 Trinetra call *them*, add an entry to
-[`trinetra/data/a2a_peers.json`](../../../trinetra/data/a2a_peers.json) — the
+[`trinetra/data/a2a_peers.json`](https://github.com/akashtalole/Agents-for-Humans-Hackathon/blob/main/trinetra/data/a2a_peers.json) — the
 allowlist; Trinetra will not call a URL that is not in it.
 
 ## Honest limitations

@@ -689,7 +689,7 @@ rather than a secret).
 for deploying this web UI to Amazon ECS Express Mode (a single container,
 built from `Dockerfile.claimclarity.webapp`, behind a load-balanced HTTPS
 endpoint) — a different, separate deployment path from
-[`deploy/cloudshell/`](deploy/cloudshell/)'s Bedrock AgentCore path above,
+[`deploy/cloudshell/`](deploy/cloudshell/README.md)'s Bedrock AgentCore path above,
 which deploys the *agent* rather than this *web UI*.
 
 Offline tests: `tests/test_claimclarity_api.py` covers the job lifecycle

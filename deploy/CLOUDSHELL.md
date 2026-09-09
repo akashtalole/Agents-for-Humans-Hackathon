@@ -18,10 +18,10 @@ install, no Docker daemon, nothing to configure on your own machine.
 
 | Path | Deploys | CloudShell? |
 |---|---|---|
-| [`cloudshell/`](cloudshell/) | BidWright + ClaimClarity → AgentCore Runtime | ✅ yes |
-| [`trinetra/`](trinetra/) | Trinetra headless action API → AgentCore Runtime | ✅ yes |
-| [`ecs-express/trinetra/`](ecs-express/trinetra/) | Trinetra dashboard → ECS Express (HTTPS URL) | ✅ yes — builds on CodeBuild |
-| [`ecs-express/trinetra-a2a/`](ecs-express/trinetra-a2a/) | Trinetra A2A agent → ECS Express | ✅ yes — builds on CodeBuild |
+| [`cloudshell/`](cloudshell/README.md) | BidWright + ClaimClarity → AgentCore Runtime | ✅ yes |
+| [`trinetra/`](trinetra/README.md) | Trinetra headless action API → AgentCore Runtime | ✅ yes |
+| [`ecs-express/trinetra/`](ecs-express/trinetra/README.md) | Trinetra dashboard → ECS Express (HTTPS URL) | ✅ yes — builds on CodeBuild |
+| [`ecs-express/trinetra-a2a/`](ecs-express/trinetra-a2a/README.md) | Trinetra A2A agent → ECS Express | ✅ yes — builds on CodeBuild |
 | `ecs-express/bidwright/` | BidWright web UI | ❌ **no** — runs `docker build` locally |
 | `ecs-express/claimclarity/` | ClaimClarity web UI | ❌ **no** — local `docker build` |
 | `ecs-express/glacierwatch/` | GlacierWatch web UI | ❌ **no** — local `docker build` |

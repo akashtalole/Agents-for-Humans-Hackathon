@@ -214,6 +214,29 @@ python server_trinetra_a2a.py          # or: trinetra a2a-serve --port 9100
 curl http://localhost:9100/.well-known/agent-card.json
 ```
 
+## 7. Build the documentation site (optional)
+
+The published site is at
+<https://akashtalole.github.io/Agents-for-Humans-Hackathon/>, rebuilt by GitHub
+Actions on every push to `main`. To work on it locally:
+
+```bash
+pip install -r requirements-docs.txt
+
+python scripts/build_docs.py --serve    # live-reload at http://127.0.0.1:8000
+python scripts/build_docs.py --build    # one-off strict build
+```
+
+`scripts/build_docs.py` stages the repo's Markdown into `.mkdocs-build/`
+(gitignored) **preserving each file's repository-relative path**. That is what
+lets the existing relative links keep working in both places at once — MkDocs
+rewrites `.md` links to built URLs, so `[SETUP.md](SETUP.md)` resolves on the
+site and on GitHub with no rewriting and no plugin. Read that script's
+docstring before restructuring the docs.
+
+`--build` uses `--strict`, so a broken internal link fails the build rather
+than publishing a broken page. CI runs the same thing on every pull request.
+
 ## Troubleshooting
 
 **`pytest` reports far fewer than 504 tests**

@@ -7,7 +7,7 @@ single AWS CLI call (`aws ecs create-express-gateway-service`) that stands
 up a load-balanced, autoscaled, HTTPS-fronted service without you having to
 hand-assemble a VPC, ALB, target group, task definition, and service
 yourself. This is separate from, and unrelated to, this repo's other AWS
-deployment path — [`deploy/cloudshell/`](../../cloudshell/) puts the
+deployment path — [`deploy/cloudshell/`](../../cloudshell/README.md) puts the
 *agent* itself on Bedrock AgentCore Runtime; this puts the *web UI* (which
 still calls the Anthropic API directly, not Bedrock) on ECS.
 
