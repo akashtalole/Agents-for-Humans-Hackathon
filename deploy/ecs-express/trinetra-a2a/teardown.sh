@@ -36,6 +36,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../trinetra/common.sh
 source "$SCRIPT_DIR/../trinetra/common.sh"
 
+# The A2A deployment reuses the sibling dashboard's common.sh, which defaults
+# MANIFEST_PATH to the DASHBOARD's manifest. Override it here: both teardown
+# scripts delete the manifest they read, so sharing one meant deploying the
+# A2A agent after the dashboard silently overwrote the dashboard's record -
+# leaving a Fargate service and a load balancer running with nothing left that
+# knew how to tear them down.
+MANIFEST_PATH_DEFAULT="$HOME/.trinetra-a2a-ecs-express-deployment.json"
+MANIFEST_PATH="${TRINETRA_A2A_ECS_MANIFEST:-$MANIFEST_PATH_DEFAULT}"
+
+
 usage() {
     awk '/^#!/{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "${BASH_SOURCE[0]}"
 }

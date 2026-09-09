@@ -127,8 +127,13 @@ ensure_repo() {
     log_ok "Working in $REPO_DIR"
 }
 
-MANIFEST_PATH_DEFAULT="$HOME/.agentcore-deployment.json"
-MANIFEST_PATH="${AGENTCORE_MANIFEST:-$MANIFEST_PATH_DEFAULT}"
+# Deliberately NOT the same file as deploy/cloudshell/ uses. Both deploy to
+# AgentCore Runtime, and both teardown scripts delete this manifest when they
+# finish - so sharing a default meant deploying Trinetra after
+# BidWright/ClaimClarity silently overwrote their record, leaving billable
+# resources deployed with nothing left that knew how to tear them down.
+MANIFEST_PATH_DEFAULT="$HOME/.trinetra-agentcore-deployment.json"
+MANIFEST_PATH="${TRINETRA_AGENTCORE_MANIFEST:-${AGENTCORE_MANIFEST:-$MANIFEST_PATH_DEFAULT}}"
 
 manifest_write() {
     python3 - "$MANIFEST_PATH" "$@" <<'EOF'

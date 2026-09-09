@@ -36,7 +36,7 @@
 #      model and never sees any API key; model credentials are injected as
 #      a runtime environment variable via `agentcore deploy --env`, a
 #      separate step from the image build.
-#   4. Writes a deployment manifest (default ~/.agentcore-deployment.json)
+#   4. Writes a deployment manifest (default ~/.trinetra-agentcore-deployment.json)
 #      that invoke_samples.sh and teardown.sh read.
 #
 # COST WARNING: this creates billable AWS resources - Bedrock model

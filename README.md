@@ -143,6 +143,11 @@ the matching `teardown.sh` when you're done.
 Every script supports `--dry-run`, which prints what it would do and touches
 nothing.
 
+**→ [deploy/CLOUDSHELL.md](deploy/CLOUDSHELL.md)** — step-by-step instructions
+for every path that runs from AWS CloudShell, with prerequisites, teardown and
+troubleshooting. Three of the seven paths need local Docker and are called out
+there explicitly.
+
 ### Bedrock AgentCore Runtime
 
 Two separate directories, both runnable straight from

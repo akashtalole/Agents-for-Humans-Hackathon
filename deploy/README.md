@@ -1,5 +1,9 @@
 # Deploying to Amazon Bedrock AgentCore Runtime
 
+> **Deploying from AWS CloudShell?** Start with
+> **[CLOUDSHELL.md](CLOUDSHELL.md)** — it covers every path that works
+> there end to end, and names the three that need local Docker instead.
+
 This is optional for both projects in this repo. Each runs entirely locally
 via its CLI or Streamlit demo with no AWS dependency beyond model access.
 Deploying to AgentCore Runtime turns the same orchestrator into a managed,
