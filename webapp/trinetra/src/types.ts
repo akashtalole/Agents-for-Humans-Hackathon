@@ -61,6 +61,10 @@ export interface GhatSimResult {
   ghat_name: string
   peak_occupancy: number
   peak_occupancy_pct_of_safe_capacity: number
+  peak_queue_outside: number
+  final_queue_outside: number
+  queue_still_growing_at_end: boolean
+  queue_clear_minutes: number
   peak_tick_minute: number
   risk_level: RiskLevel
   bottleneck_routes: string[]
@@ -175,6 +179,8 @@ export interface RumorResponse {
   guardrail: RumorGuardrailResult
 }
 
+export type CalibrationCaseKind = 'historical_incident' | 'synthetic_control'
+
 export interface CalibrationResult {
   case_id: string
   case_name: string
@@ -182,6 +188,8 @@ export interface CalibrationResult {
   simulated_peak_risk: RiskLevel
   correctly_flagged: boolean
   note: string
+  case_kind: CalibrationCaseKind
+  expect_critical: boolean
 }
 
 export type ResponderType = 'police' | 'medical' | 'ambulance' | 'rescue' | 'announcer'

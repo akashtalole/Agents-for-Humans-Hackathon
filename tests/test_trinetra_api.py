@@ -87,12 +87,15 @@ def test_sites_endpoint_returns_real_bundled_geography(client):
     assert len(body["routes"]) > 0
 
 
-def test_calibration_endpoint_both_cases_pass_no_mocking_needed(client):
+def test_calibration_endpoint_all_cases_pass_no_mocking_needed(client):
     resp = client.get("/api/calibration")
     assert resp.status_code == 200
     results = resp.json()["results"]
-    assert len(results) == 2
     assert all(r["correctly_flagged"] for r in results)
+    # Both kinds must reach the client: without the controls a green badge in
+    # the dashboard would be meaningless.
+    assert any(r["case_kind"] == "historical_incident" for r in results)
+    assert any(not r["expect_critical"] for r in results)
 
 
 def test_pilgrim_ask_wiring(client, monkeypatch):

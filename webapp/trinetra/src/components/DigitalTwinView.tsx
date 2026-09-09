@@ -248,6 +248,14 @@ export default function DigitalTwinView({ sites }: { sites: SitesResponse }) {
                     Peak {g.peak_occupancy.toLocaleString()} people ({g.peak_occupancy_pct_of_safe_capacity}%) at minute{' '}
                     {g.peak_tick_minute}
                   </div>
+                  {g.peak_queue_outside > 0 && (
+                    <div className="mt-1 text-xs text-rose-300">
+                      Held in the approach lane: {g.peak_queue_outside.toLocaleString()} at peak
+                      {g.queue_still_growing_at_end
+                        ? ' — still growing when the window ended'
+                        : `, clears in ~${Math.round(g.queue_clear_minutes)} min`}
+                    </div>
+                  )}
                   {g.bottleneck_routes.length > 0 && (
                     <div className="mt-1 text-xs text-amber-400">Bottleneck: {g.bottleneck_routes.join(', ')}</div>
                   )}

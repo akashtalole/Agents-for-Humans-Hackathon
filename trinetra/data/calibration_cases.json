@@ -1,41 +1,121 @@
 {
-  "_citation_note": "These are real, documented historical crowd-crush incidents at Kumbh gatherings. Trinetra's simulator is calibrated against them: if replaying a scenario built from these documented conditions does not come back CRITICAL, the simulator's risk model is not trustworthy enough to use for real planning. Casualty figures are the officially reported counts; independent investigations have in some cases found higher counts (noted where applicable) - see TRINETRA.md's honest-limitations section.",
-  "cases": [
-    {
-      "case_id": "nashik_2003",
-      "name": "Nashik Kumbh stampede, Kalaram Mandir",
-      "year": 2003,
-      "location": "Kalaram Mandir Marg, Panchavati, Nashik",
-      "deaths": 39,
-      "cause_summary": "A barricade at a gully near Kalaram Mandir collapsed under crowd pressure after sadhus threw coins toward devotees, triggering a crush on a lane narrower than 6 feet (~1.8m) during a record 5-million-person Shahi Snan day.",
-      "source": "Al Jazeera, 'Indian stampede leaves 39 dead' (Aug 27, 2003); Tribune India, Aug 28, 2003 front-page coverage.",
-      "scenario": {
-        "name": "Nashik 2003 replay: narrow-lane surge at Kalaram Mandir Marg",
-        "description": "A high-density Shahi Snan-equivalent day with a sudden localized surge (crowd converging toward a narrow single-file lane) replaying the documented conditions of the 2003 incident.",
-        "based_on_real_incident": "Nashik Kumbh stampede, Aug 27, 2003 - see cause_summary above",
-        "total_pilgrims": 500000,
-        "duration_minutes": 180,
-        "peak_inflow_multiplier": 3.2,
-        "active_ghat_ids": ["kalaram_marg", "ramkund"]
-      }
-    },
-    {
-      "case_id": "prayagraj_2025",
-      "name": "Prayagraj Maha Kumbh stampede, Sangam Nose",
-      "year": 2025,
-      "location": "Sangam Nose, Prayagraj (Maha Kumbh, not Nashik - included as the most recent, best-documented Kumbh-scale crowd-crush calibration case available)",
-      "deaths": 30,
-      "cause_summary": "Pre-dawn barricades broke under crowd pressure during the Mauni Amavasya Amrit Snan as a massive crowd converged on the Sangam Nose bathing point between 1-2 AM; official count was 30 dead, 60 injured, though a BBC investigation identified at least 82 deaths.",
-      "source": "CBS News (Jan 29, 2025); Wikipedia '2025 Prayag Maha Kumbh Mela crowd crush'; Deccan Herald live coverage.",
-      "scenario": {
-        "name": "Prayagraj 2025 replay: pre-dawn peak-auspicious-day surge",
-        "description": "An overnight/pre-dawn surge on the single most auspicious bathing day of the cycle (Mauni Amavasya-equivalent), replaying the documented barricade-failure conditions.",
-        "based_on_real_incident": "Prayagraj Maha Kumbh stampede, Jan 29, 2025 - see cause_summary above",
-        "total_pilgrims": 2000000,
-        "duration_minutes": 120,
-        "peak_inflow_multiplier": 4.5,
-        "active_ghat_ids": ["ramkund", "kushavarta"]
-      }
-    }
-  ]
+ "_citation_note": "This suite has two kinds of case. HISTORICAL INCIDENTS are real, documented crowd-crush incidents at Kumbh gatherings; casualty figures are the officially reported counts, and independent investigations have in some cases found higher counts (noted where applicable). SYNTHETIC CONTROLS are NOT historical - they are constructed scenarios that the simulator must decline to flag, and they exist because a suite made only of disasters is passed by a function that always returns CRITICAL. Every capacity figure all of these run against is Trinetra's own planning estimate (see sites.json's _citation_note), so a passing run shows the model is internally consistent and responds to routing in the expected direction - not that its thresholds are correct for the real Nashik ghats. See TRINETRA.md's honest-limitations section.",
+ "cases": [
+  {
+   "case_id": "nashik_2003",
+   "name": "Nashik Kumbh stampede, Kalaram Mandir",
+   "year": 2003,
+   "location": "Kalaram Mandir Marg, Panchavati, Nashik",
+   "deaths": 39,
+   "cause_summary": "A barricade at a gully near Kalaram Mandir collapsed under crowd pressure after sadhus threw coins toward devotees, triggering a crush on a lane narrower than 6 feet (~1.8m) during a record 5-million-person Shahi Snan day.",
+   "source": "Al Jazeera, 'Indian stampede leaves 39 dead' (Aug 27, 2003); Tribune India, Aug 28, 2003 front-page coverage.",
+   "scenario": {
+    "name": "Nashik 2003 replay: narrow-lane surge at Kalaram Mandir Marg",
+    "description": "A high-density Shahi Snan-equivalent day with a sudden localized surge (crowd converging toward a narrow single-file lane) replaying the documented conditions of the 2003 incident.",
+    "based_on_real_incident": "Nashik Kumbh stampede, Aug 27, 2003 - see cause_summary above",
+    "total_pilgrims": 500000,
+    "duration_minutes": 180,
+    "peak_inflow_multiplier": 3.2,
+    "active_ghat_ids": [
+     "kalaram_marg",
+     "ramkund"
+    ]
+   },
+   "case_kind": "historical_incident",
+   "expect_critical": true
+  },
+  {
+   "case_id": "prayagraj_2025",
+   "name": "Prayagraj Maha Kumbh stampede, Sangam Nose",
+   "year": 2025,
+   "location": "Sangam Nose, Prayagraj (Maha Kumbh, not Nashik - included as the most recent, best-documented Kumbh-scale crowd-crush calibration case available)",
+   "deaths": 30,
+   "cause_summary": "Pre-dawn barricades broke under crowd pressure during the Mauni Amavasya Amrit Snan as a massive crowd converged on the Sangam Nose bathing point between 1-2 AM; official count was 30 dead, 60 injured, though a BBC investigation identified at least 82 deaths.",
+   "source": "CBS News (Jan 29, 2025); Wikipedia '2025 Prayag Maha Kumbh Mela crowd crush'; Deccan Herald live coverage.",
+   "scenario": {
+    "name": "Prayagraj 2025 replay: pre-dawn peak-auspicious-day surge",
+    "description": "An overnight/pre-dawn surge on the single most auspicious bathing day of the cycle (Mauni Amavasya-equivalent), replaying the documented barricade-failure conditions.",
+    "based_on_real_incident": "Prayagraj Maha Kumbh stampede, Jan 29, 2025 - see cause_summary above",
+    "total_pilgrims": 2000000,
+    "duration_minutes": 120,
+    "peak_inflow_multiplier": 4.5,
+    "active_ghat_ids": [
+     "ramkund",
+     "kushavarta"
+    ]
+   },
+   "case_kind": "historical_incident",
+   "expect_critical": true
+  },
+  {
+   "case_id": "ordinary_morning_control",
+   "name": "Control: ordinary non-snan morning",
+   "year": 0,
+   "location": "Panchavati ghats, Nashik (constructed scenario)",
+   "deaths": 0,
+   "cause_summary": "A routine Kumbh-period morning with no bathing-auspicious timing: a moderate crowd spread across the three wider ghats with no surge. Nothing about this day should alarm a control room.",
+   "source": "SYNTHETIC - not a historical event. Constructed as a negative control so the suite can fail.",
+   "case_kind": "synthetic_control",
+   "expect_critical": false,
+   "scenario": {
+    "name": "Control: ordinary non-snan morning",
+    "description": "Moderate crowd, wide ghats, no surge.",
+    "based_on_real_incident": null,
+    "total_pilgrims": 40000,
+    "duration_minutes": 180,
+    "peak_inflow_multiplier": 1.0,
+    "active_ghat_ids": [
+     "ramkund",
+     "kushavarta",
+     "panchavati_godavari"
+    ]
+   }
+  },
+  {
+   "case_id": "kumbh_managed_snan_control",
+   "name": "Control: managed staggered snan (1.8m lane bypassed)",
+   "year": 0,
+   "location": "Panchavati ghats, Nashik (constructed scenario)",
+   "deaths": 0,
+   "cause_summary": "A large snan crowd handled the way the post-2003 playbook says to handle it: bathing staggered over six hours, only the wider ghats on the route, and the 1.8m Kalaram Mandir approach lane kept off it entirely. A busy day, not a dangerous one.",
+   "source": "SYNTHETIC - not a historical event. Pairs with kumbh_funnelled_snan_control: identical crowd, window and surge, differing only in routing.",
+   "case_kind": "synthetic_control",
+   "expect_critical": false,
+   "scenario": {
+    "name": "Control: managed staggered snan",
+    "description": "80,000 pilgrims over six hours across the three wider ghats, mild x1.3 peak.",
+    "based_on_real_incident": null,
+    "total_pilgrims": 80000,
+    "duration_minutes": 360,
+    "peak_inflow_multiplier": 1.3,
+    "active_ghat_ids": [
+     "ramkund",
+     "kushavarta",
+     "panchavati_godavari"
+    ]
+   }
+  },
+  {
+   "case_id": "kumbh_funnelled_snan_control",
+   "name": "Control: the same snan funnelled through the 1.8m lane",
+   "year": 0,
+   "location": "Kalaram Mandir Marg, Panchavati, Nashik (constructed scenario)",
+   "deaths": 0,
+   "cause_summary": "The identical crowd, window and surge as kumbh_managed_snan_control, routed instead down the 1.8m lane where the 2003 barricade failed. This must flag. If it does not, the simulator is responding only to headcount and cannot be used to evaluate a routing plan.",
+   "source": "SYNTHETIC - not a historical event. The positive half of the routing-sensitivity pair.",
+   "case_kind": "synthetic_control",
+   "expect_critical": true,
+   "scenario": {
+    "name": "Control: same snan funnelled through the 1.8m lane",
+    "description": "Same 80,000 pilgrims, same six hours, same x1.3 peak - routed via Kalaram Mandir Marg.",
+    "based_on_real_incident": null,
+    "total_pilgrims": 80000,
+    "duration_minutes": 360,
+    "peak_inflow_multiplier": 1.3,
+    "active_ghat_ids": [
+     "kalaram_marg"
+    ]
+   }
+  }
+ ]
 }

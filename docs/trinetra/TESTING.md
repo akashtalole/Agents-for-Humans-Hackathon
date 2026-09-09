@@ -64,7 +64,7 @@ model in the path:
 | FastAPI backend incl. draining a live SSE stream | `test_trinetra_api.py` |
 | Orchestrator wiring with mocked agents | `test_trinetra_orchestrator_wiring.py` |
 
-## 5. Validate the simulator against two real disasters (still free)
+## 5. Validate the simulator against two real disasters and three controls (still free)
 
 ```bash
 trinetra calibrate
@@ -75,9 +75,25 @@ Kalaram Mandir Marg) and **2025 Prayagraj** (30 official / 82 per BBC, Sangam
 Nose) crowd crushes and checks the simulator flags both CRITICAL. It needs no
 credentials — the engine and the calibration are pure code.
 
-A planning tool that cannot reproduce a documented disaster is not safe to
-plan with, so a failure here is disqualifying, not cosmetic. Expect
-`✅ all cases correctly flagged`, and a non-zero exit if not.
+It then runs three **synthetic controls**, and these are the half worth
+watching. Two are ordinary and well-managed days the simulator must decline to
+flag; the third routes that same crowd down the 1.8m Kalaram Mandir lane and
+must flag. Without them the suite is a tautology — both disasters sit far above
+every threshold in the model, so `return CRITICAL` would pass it outright.
+`load_calibration_cases()` now refuses to run a case set with no controls, and
+`test_calibration_suite_actually_fails_a_model_that_always_says_critical`
+stubs exactly that model and asserts the suite fails.
+
+A planning tool that cannot reproduce a documented disaster is not safe to plan
+with, and one that alarms at everything gives a control room no way to tell a
+warning from noise. A failure either way is disqualifying, not cosmetic. Expect
+`✅ all cases behaved as expected`, and a non-zero exit if not.
+
+What a pass does **not** establish: every capacity figure these cases run
+against is Trinetra's own estimate, and the controls are constructed rather
+than drawn from NTKMA's record. It shows the model is internally consistent and
+reacts to routing in the right direction — not that the thresholds are right
+for the real ghats.
 
 ## 6. Run the CLI (real API calls, real cost)
 

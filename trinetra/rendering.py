@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from trinetra.models import (
     AllocationPlan,
+    CalibrationCaseKind,
     CalibrationResult,
     CommandBrief,
     CompoundRiskAssessment,
@@ -61,6 +62,17 @@ def render_simulation_report_md(report: SimulationReport, advisory: NTKMAAdvisor
             f"- Peak occupancy: {g.peak_occupancy} people "
             f"({g.peak_occupancy_pct_of_safe_capacity}% of safe capacity), at minute {g.peak_tick_minute}"
         )
+        if g.peak_queue_outside:
+            if g.queue_still_growing_at_end:
+                clearance = (
+                    "still growing when the window ended - this model cannot say when it clears"
+                )
+            else:
+                clearance = f"clears in ~{g.queue_clear_minutes:.0f} min if nobody else arrives"
+            lines.append(
+                f"- Held in the approach lane: {g.peak_queue_outside:,} people at peak "
+                f"({g.final_queue_outside:,} still waiting at the end, {clearance})"
+            )
         if g.bottleneck_routes:
             lines.append(f"- Bottleneck route(s): {', '.join(g.bottleneck_routes)}")
         lines.append("")
@@ -81,24 +93,43 @@ def render_simulation_report_md(report: SimulationReport, advisory: NTKMAAdvisor
 
 
 def render_calibration_md(results: list[CalibrationResult]) -> str:
+    incidents = [r for r in results if r.case_kind == CalibrationCaseKind.HISTORICAL_INCIDENT]
+    controls = [r for r in results if r.case_kind == CalibrationCaseKind.SYNTHETIC_CONTROL]
     lines = [
-        "# Bhavishya Netra Calibration Against Real Historical Incidents",
+        "# Bhavishya Netra Calibration",
         "",
-        "Each case below is a real, documented Kumbh crowd-crush disaster. Trinetra's "
-        "simulator replays the documented conditions; if it does not come back CRITICAL, "
-        "the simulator's thresholds are not trustworthy enough to use for real planning.",
+        "Two kinds of case run here. **Historical incidents** replay documented Kumbh "
+        "crowd-crush disasters and must come back CRITICAL. **Synthetic controls** are "
+        "constructed, not historical: ordinary and well-managed days the simulator must "
+        "decline to flag, plus one routing-sensitivity case. The controls are the reason a "
+        "pass means anything - a suite of disasters alone is passed by a model that always "
+        "returns CRITICAL.",
+        "",
+        "This shows the model is internally consistent and responds to routing in the "
+        "expected direction. It does **not** show the thresholds are right for the real "
+        "Nashik ghats: every capacity figure here is Trinetra's own estimate, not NTKMA's.",
         "",
     ]
     all_correct = all(r.correctly_flagged for r in results)
-    lines.append(f"**Result: {'✅ all cases correctly flagged' if all_correct else '⚠️ one or more cases NOT flagged'}**")
+    lines.append(
+        f"**Result: {'✅ all cases behaved as expected' if all_correct else '⚠️ one or more cases did not'}** "
+        f"({len(incidents)} historical incident(s), {len(controls)} control(s))"
+    )
     lines.append("")
-    for r in results:
-        mark = "✅" if r.correctly_flagged else "❌"
-        lines.append(f"## {mark} {r.case_name}")
-        lines.append(f"- Real-world deaths: {r.real_world_deaths}")
-        lines.append(f"- Simulated peak risk: {r.simulated_peak_risk.value.upper()}")
-        lines.append(f"- {r.note}")
-        lines.append("")
+    for heading, group in (("Historical incidents", incidents), ("Synthetic controls", controls)):
+        if not group:
+            continue
+        lines += [f"## {heading}", ""]
+        for r in group:
+            mark = "✅" if r.correctly_flagged else "❌"
+            expectation = "must flag CRITICAL" if r.expect_critical else "must NOT flag"
+            lines.append(f"### {mark} {r.case_name}")
+            if r.case_kind == CalibrationCaseKind.HISTORICAL_INCIDENT:
+                lines.append(f"- Real-world deaths: {r.real_world_deaths}")
+            lines.append(f"- Expectation: {expectation}")
+            lines.append(f"- Simulated peak risk: {r.simulated_peak_risk.value.upper()}")
+            lines.append(f"- {r.note}")
+            lines.append("")
     return "\n".join(lines)
 
 

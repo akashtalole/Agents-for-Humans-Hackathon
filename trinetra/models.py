@@ -244,6 +244,18 @@ class SimulationScenario(BaseModel):
 
 
 class GhatSimResult(BaseModel):
+    """One ghat's outcome in a simulated window.
+
+    Read peak_occupancy_pct_of_safe_capacity together with the queue fields,
+    never alone. Occupancy saturates by construction - the simulator blocks
+    admission at 150% of safe capacity - so past that point the percentage
+    stops responding to how many more people arrive. Between roughly 100k and
+    1M pilgrims in the same scenario it moves only from ~160% to ~181%. The
+    queue fields are where the rest of the crowd actually shows up, and in a
+    narrow approach lane they are the more dangerous number of the two: the
+    2003 Kalaram Mandir deaths happened on the approach, not at the ghat.
+    """
+
     ghat_id: str
     ghat_name: str
     peak_occupancy: int
@@ -251,6 +263,28 @@ class GhatSimResult(BaseModel):
     peak_tick_minute: int
     risk_level: RiskLevel
     bottleneck_routes: list[str]
+    peak_queue_outside: int = Field(
+        default=0,
+        description="Most people held in the approach lane at once, unable to be admitted.",
+    )
+    final_queue_outside: int = Field(
+        default=0,
+        description="People still waiting outside when the simulated window ended.",
+    )
+    queue_still_growing_at_end: bool = Field(
+        default=False,
+        description=(
+            "True if the queue was larger at the end of the window than at its midpoint - "
+            "the backlog is unbounded as far as this model can see, so no clearance time can be quoted."
+        ),
+    )
+    queue_clear_minutes: float = Field(
+        default=0.0,
+        description=(
+            "Minutes to drain final_queue_outside at this ghat's own throughput assuming no further "
+            "arrivals. Meaningless when queue_still_growing_at_end is True."
+        ),
+    )
 
 
 class SimulationReport(BaseModel):
@@ -274,11 +308,26 @@ class NTKMAAdvisory(BaseModel):
     narrative_summary: str
 
 
+class CalibrationCaseKind(str, Enum):
+    """Why a calibration case exists.
+
+    HISTORICAL_INCIDENT cases replay documented Kumbh disasters and must come
+    back CRITICAL. SYNTHETIC_CONTROL cases are constructed, not historical -
+    they exist so the suite can fail. A calibration set made only of disasters
+    is passed by `return CRITICAL`, which is exactly as useful as it sounds.
+    """
+
+    HISTORICAL_INCIDENT = "historical_incident"
+    SYNTHETIC_CONTROL = "synthetic_control"
+
+
 class CalibrationCase(BaseModel):
-    """A real, documented historical incident used to validate the
-    simulator - if Bhavishya Netra doesn't flag conditions resembling one
-    of these as elevated/critical, the simulator isn't trustworthy enough
-    to pitch. See trinetra/data/calibration_cases.json."""
+    """One case the simulator must get right.
+
+    See trinetra/data/calibration_cases.json. `expect_critical` is what makes
+    this a test rather than an assertion: controls that must NOT flag are the
+    only reason a passing run means anything.
+    """
 
     case_id: str
     name: str
@@ -288,6 +337,8 @@ class CalibrationCase(BaseModel):
     cause_summary: str
     source: str
     scenario: SimulationScenario
+    case_kind: CalibrationCaseKind = CalibrationCaseKind.HISTORICAL_INCIDENT
+    expect_critical: bool = True
 
 
 class CalibrationResult(BaseModel):
@@ -295,8 +346,12 @@ class CalibrationResult(BaseModel):
     case_name: str
     real_world_deaths: int
     simulated_peak_risk: RiskLevel
-    correctly_flagged: bool = Field(description="True if simulated_peak_risk is CRITICAL, matching the real outcome")
+    correctly_flagged: bool = Field(
+        description="True if the simulated risk matched what this case expects (CRITICAL, or not-CRITICAL for a control)"
+    )
     note: str
+    case_kind: CalibrationCaseKind = CalibrationCaseKind.HISTORICAL_INCIDENT
+    expect_critical: bool = True
 
 
 # --------------------------------------------------------------------------

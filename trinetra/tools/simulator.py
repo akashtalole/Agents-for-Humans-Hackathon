@@ -42,14 +42,23 @@ _CRITICAL_THRESHOLD = 1.10
 # trinetra/data/calibration_cases.json).
 _NARROW_LANE_THRESHOLD_M = 2.5
 
+_RISK_ORDER = {RiskLevel.ROUTINE: 0, RiskLevel.ELEVATED: 1, RiskLevel.CRITICAL: 2}
+
 # Once occupancy reaches this multiple of a ghat's safe_capacity, this model
-# assumes further net inflow is blocked - either by authorities closing
-# entry or by the crowd's own physical density preventing more people from
-# arriving. Without this cap a sustained-demand scenario produces an
-# unbounded queue and nonsensical occupancy percentages (thousands of
-# percent) rather than a plateau. This is a deliberate, documented
-# simplification, not a measured physical limit - a real deployment should
-# replace it with NTKMA's actual gate-closure/admission-control protocol.
+# assumes further inflow is blocked - either by authorities closing entry or
+# by the crowd's own physical density preventing more people from arriving.
+# This is a deliberate, documented simplification, not a measured physical
+# limit - a real deployment should replace it with NTKMA's actual
+# gate-closure/admission-control protocol.
+#
+# IMPORTANT: blocking admission does NOT make those people go away. They are
+# standing in the approach lane, which is exactly where the 39 deaths at
+# Kalaram Mandir Marg happened in 2003 - the barricade that failed was on the
+# approach, not at the ghat. An earlier version of this module silently
+# discarded every unadmitted arrival, which meant the 2003 replay dropped
+# roughly 263,000 people from the model and reported the resulting plateau as
+# if it were the whole story. They are now conserved in `waiting` below and
+# reported as queue_outside_* on each GhatSimResult.
 # See TRINETRA.md's honest-limitations section.
 _ADMISSION_BLOCK_MULTIPLE = 1.5
 
@@ -99,15 +108,31 @@ def simulate_scenario(
     if not active_ghats:
         raise ValueError(f"No known ghats among {scenario.active_ghat_ids}")
 
-    baseline_inflow_per_min = scenario.total_pilgrims / scenario.duration_minutes / len(active_ghats)
     peak_start = scenario.duration_minutes // 3
     peak_end = 2 * scenario.duration_minutes // 3
+
+    # A surge redistributes when the same crowd turns up, it does not conjure
+    # extra pilgrims. Normalising by the multiplier-weighted length of the
+    # window keeps total arrivals equal to scenario.total_pilgrims for any
+    # peak_inflow_multiplier. Without this the x3.2 replay generated 1.73x
+    # the stated crowd - which went unnoticed while unadmitted arrivals were
+    # being discarded, because the surplus people were thrown away before
+    # anything counted them.
+    peak_minutes = peak_end - peak_start
+    weighted_minutes = (scenario.duration_minutes - peak_minutes) + peak_minutes * scenario.peak_inflow_multiplier
+    baseline_inflow_per_min = scenario.total_pilgrims / weighted_minutes / len(active_ghats)
 
     outflow_caps = {g.id: _outflow_capacity(g, routes) for g in active_ghats}
     admission_block_levels = {g.id: g.safe_capacity * _ADMISSION_BLOCK_MULTIPLE for g in active_ghats}
     occupancy = {g.id: 0.0 for g in active_ghats}
     peak_occupancy = {g.id: 0.0 for g in active_ghats}
     peak_tick = {g.id: 0 for g in active_ghats}
+    # People who arrived but were not admitted. They are in the approach
+    # lane - see _ADMISSION_BLOCK_MULTIPLE.
+    waiting = {g.id: 0.0 for g in active_ghats}
+    peak_waiting = {g.id: 0.0 for g in active_ghats}
+    waiting_half_window = {g.id: 0.0 for g in active_ghats}
+    half_window = scenario.duration_minutes // 2
 
     for minute in range(scenario.duration_minutes):
         is_peak_window = peak_start <= minute < peak_end
@@ -116,21 +141,30 @@ def simulate_scenario(
         for ghat in active_ghats:
             gid = ghat.id
             demanded_inflow = baseline_inflow_per_min * (scenario.peak_inflow_multiplier if is_peak_window else 1.0)
+            # Everyone who has turned up and not yet got in is contending for
+            # admission this minute: this minute's arrivals plus everyone
+            # already held back in the lane.
+            presenting = demanded_inflow + waiting[gid]
             # Admission control: once occupancy reaches the block level, only
-            # let in enough new arrivals to replace outflow, rather than
-            # letting the queue grow without bound - see _ADMISSION_BLOCK_MULTIPLE.
+            # let in enough people to replace outflow - see
+            # _ADMISSION_BLOCK_MULTIPLE.
             admitted_inflow = (
-                demanded_inflow if occupancy[gid] < admission_block_levels[gid] else min(demanded_inflow, outflow_caps[gid])
+                presenting if occupancy[gid] < admission_block_levels[gid] else min(presenting, outflow_caps[gid])
             )
+            waiting[gid] = max(0.0, presenting - admitted_inflow)
             outflow = min(outflow_caps[gid], occupancy[gid] + admitted_inflow)
             occupancy[gid] = max(0.0, occupancy[gid] + admitted_inflow - outflow)
             if occupancy[gid] > peak_occupancy[gid]:
                 peak_occupancy[gid] = occupancy[gid]
                 peak_tick[gid] = minute
+            peak_waiting[gid] = max(peak_waiting[gid], waiting[gid])
+            if minute == half_window:
+                waiting_half_window[gid] = waiting[gid]
 
             tick_snapshot[gid] = {
                 "occupancy": occupancy[gid],
                 "pct_of_capacity": (occupancy[gid] / ghat.safe_capacity * 100) if ghat.safe_capacity else 0.0,
+                "waiting_outside": waiting[gid],
             }
 
         if on_tick is not None:
@@ -142,13 +176,46 @@ def simulate_scenario(
     for ghat in active_ghats:
         gid = ghat.id
         peak_pct = peak_occupancy[gid] / ghat.safe_capacity if ghat.safe_capacity else float("inf")
-        risk = _risk_level(peak_pct)
+        occupancy_risk = _risk_level(peak_pct)
+
+        # The queue outside is its own hazard, and not one occupancy can
+        # express: occupancy saturates at _ADMISSION_BLOCK_MULTIPLE by
+        # construction, so once a ghat is blocked its percentage stops moving
+        # no matter how many more people arrive. Everything after that point
+        # shows up here instead.
+        final_waiting = waiting[gid]
+        queue_still_growing = final_waiting > waiting_half_window[gid]
+        # Minutes to drain the leftover queue at this ghat's own throughput,
+        # assuming nobody else arrives. Derived from the model, not a
+        # tuned threshold.
+        queue_clear_minutes = final_waiting / outflow_caps[gid] if outflow_caps[gid] else float("inf")
+        is_narrow = ghat.narrowest_approach_m <= _NARROW_LANE_THRESHOLD_M
+
+        # A queue that is still growing when the window ends is unbounded as
+        # far as this model can tell. In a lane below the structural width
+        # threshold that is the 2003 Kalaram Mandir mechanism exactly, so it
+        # is critical on its own evidence - not because occupancy said so.
+        if queue_still_growing and is_narrow:
+            queue_risk = RiskLevel.CRITICAL
+        elif queue_still_growing or final_waiting > 0:
+            queue_risk = RiskLevel.ELEVATED
+        else:
+            queue_risk = RiskLevel.ROUTINE
+
+        risk = max((occupancy_risk, queue_risk), key=lambda lvl: _RISK_ORDER[lvl])
 
         bottleneck_routes = [
             r.name for r in routes if gid in r.connects and r.capacity_per_minute < outflow_caps[gid] + 1
         ]
 
-        if risk == RiskLevel.CRITICAL:
+        if queue_risk == RiskLevel.CRITICAL:
+            incidents.append(
+                f"Approach-lane crush risk at {ghat.name}: {round(peak_waiting[gid]):,} people held outside at peak "
+                f"on a {ghat.narrowest_approach_m}m-wide approach, and the queue was still growing when the "
+                f"simulated window ended - this model cannot say when it clears."
+            )
+
+        if occupancy_risk == RiskLevel.CRITICAL:
             structural_note = (
                 f" on a {ghat.narrowest_approach_m}m-wide approach (below the "
                 f"{_NARROW_LANE_THRESHOLD_M}m structural crush-risk threshold)"
@@ -169,11 +236,14 @@ def simulate_scenario(
                 peak_tick_minute=peak_tick[gid],
                 risk_level=risk,
                 bottleneck_routes=bottleneck_routes,
+                peak_queue_outside=round(peak_waiting[gid]),
+                final_queue_outside=round(final_waiting),
+                queue_still_growing_at_end=queue_still_growing,
+                queue_clear_minutes=round(queue_clear_minutes, 1),
             )
         )
 
-    order = {RiskLevel.ROUTINE: 0, RiskLevel.ELEVATED: 1, RiskLevel.CRITICAL: 2}
-    overall_risk = max((r.risk_level for r in ghat_results), key=lambda lvl: order[lvl])
+    overall_risk = max((r.risk_level for r in ghat_results), key=lambda lvl: _RISK_ORDER[lvl])
 
     return SimulationReport(
         scenario_name=scenario.name,

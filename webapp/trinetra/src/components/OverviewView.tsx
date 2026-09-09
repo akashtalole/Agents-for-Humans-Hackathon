@@ -31,8 +31,8 @@ export default function OverviewView({ sites, onNavigate }: { sites: SitesRespon
         />
         <Kpi
           label="Calibration"
-          value={calibration === null ? '…' : allCalibrated ? '2 / 2' : `${calibration.filter((c) => c.correctly_flagged).length} / ${calibration.length}`}
-          sub="Real historical disasters flagged"
+          value={calibration === null ? '…' : `${calibration.filter((c) => c.correctly_flagged).length} / ${calibration.length}`}
+          sub="Disasters flagged, controls held"
           accent={allCalibrated ? 'text-emerald-300' : 'text-red-300'}
         />
       </div>

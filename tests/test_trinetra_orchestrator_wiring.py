@@ -113,8 +113,9 @@ def test_run_calibration_uses_real_deterministic_engine_no_mocking_needed():
     directly, no monkeypatching required."""
     session = TrinetraSession()
     results = run_calibration(session)
-    assert len(results) == 2
+    assert len(results) >= 2
     assert all(r.correctly_flagged for r in results)
+    assert any(not r.expect_critical for r in results), "no negative controls reached the orchestrator"
 
 
 def test_session_loads_real_bundled_geography_by_default():
