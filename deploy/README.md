@@ -20,7 +20,7 @@ autoscaled HTTPS endpoint.
 
 ## The fast path: automated CloudShell scripts
 
-**[`deploy/cloudshell/`](cloudshell/)** has `setup.sh` / `invoke_samples.sh` /
+**[`deploy/cloudshell/`](cloudshell/README.md)** has `setup.sh` / `invoke_samples.sh` /
 `teardown.sh` that do everything below for both projects at once, meant to
 run straight from [AWS CloudShell](https://aws.amazon.com/cloudshell/) with
 no local install. Start there — see [`deploy/cloudshell/README.md`](cloudshell/README.md)

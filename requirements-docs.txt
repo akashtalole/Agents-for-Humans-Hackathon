@@ -1,0 +1,7 @@
+# Documentation site only - not needed to run or test any of the four
+# projects. See scripts/build_docs.py and mkdocs.yml.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+# Referenced directly by mkdocs.yml (pymdownx.slugs, superfences, tabbed, ...),
+# not only transitively via Material - so pinned here explicitly.
+pymdown-extensions==11.0.2

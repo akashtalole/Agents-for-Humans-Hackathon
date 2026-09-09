@@ -44,6 +44,8 @@ cp .env.example .env   # then set ANTHROPIC_API_KEY, or configure AWS for Bedroc
 trinetra status        # confirm which provider is active, without a billable call
 ```
 
+**📖 [Documentation site](https://akashtalole.github.io/Agents-for-Humans-Hackathon/)** — everything below, plus every project and deployment guide, searchable.
+
 **→ [SETUP.md](SETUP.md)** — full setup guide: prerequisites, the extras
 matrix, both credential paths, building the web UIs, and troubleshooting.
 
@@ -154,11 +156,11 @@ Two separate directories, both runnable straight from
 [AWS CloudShell](https://aws.amazon.com/cloudshell/) with no local install or
 Docker:
 
-- [`deploy/cloudshell/`](deploy/cloudshell/) — **BidWright and ClaimClarity**.
+- [`deploy/cloudshell/`](deploy/cloudshell/README.md) — **BidWright and ClaimClarity**.
   Supports both Bedrock and an Anthropic API key as the model provider; see
   that README's note on how the key reaches the runtime without CodeBuild ever
   seeing it.
-- [`deploy/trinetra/`](deploy/trinetra/) — **Trinetra's headless action API**
+- [`deploy/trinetra/`](deploy/trinetra/README.md) — **Trinetra's headless action API**
   (`agentcore_app_trinetra.py`, routing `ask`/`sos`/`simulate`/`calibrate`),
   following the same pattern.
 
@@ -173,11 +175,11 @@ certificate, public HTTPS URL and autoscaling:
 
 | Directory | Deploys | Image built by |
 |---|---|---|
-| [`deploy/ecs-express/bidwright/`](deploy/ecs-express/bidwright/) | BidWright web UI | local Docker |
-| [`deploy/ecs-express/claimclarity/`](deploy/ecs-express/claimclarity/) | ClaimClarity web UI | local Docker |
-| [`deploy/ecs-express/glacierwatch/`](deploy/ecs-express/glacierwatch/) | GlacierWatch web UI | local Docker |
-| [`deploy/ecs-express/trinetra/`](deploy/ecs-express/trinetra/) | Trinetra dashboard | **AWS CodeBuild** — no local Docker needed |
-| [`deploy/ecs-express/trinetra-a2a/`](deploy/ecs-express/trinetra-a2a/) | Trinetra **A2A agent** | **AWS CodeBuild** |
+| [`deploy/ecs-express/bidwright/`](deploy/ecs-express/bidwright/README.md) | BidWright web UI | local Docker |
+| [`deploy/ecs-express/claimclarity/`](deploy/ecs-express/claimclarity/README.md) | ClaimClarity web UI | local Docker |
+| [`deploy/ecs-express/glacierwatch/`](deploy/ecs-express/glacierwatch/README.md) | GlacierWatch web UI | local Docker |
+| [`deploy/ecs-express/trinetra/`](deploy/ecs-express/trinetra/README.md) | Trinetra dashboard | **AWS CodeBuild** — no local Docker needed |
+| [`deploy/ecs-express/trinetra-a2a/`](deploy/ecs-express/trinetra-a2a/README.md) | Trinetra **A2A agent** | **AWS CodeBuild** |
 
 The two CodeBuild-based paths are runnable entirely from CloudShell. The A2A
 one deploys in two phases, because an agent card must advertise the address
@@ -194,4 +196,4 @@ updated, as a runtime environment variable. The scripts redact it even in
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/akashtalole/Agents-for-Humans-Hackathon/blob/main/LICENSE).

@@ -8,7 +8,7 @@ Fargate compute, a load balancer/gateway, and a public HTTPS URL together,
 without hand-wiring a VPC, target group, or ALB yourself.
 
 This is a different, newer AWS path than
-[`deploy/cloudshell/`](../../cloudshell/), which deploys the *agent* (no web
+[`deploy/cloudshell/`](../../cloudshell/README.md), which deploys the *agent* (no web
 UI, invoked as a Bedrock AgentCore Runtime agent) — this directory deploys
 the *web app* container as an ordinary HTTP service on ECS instead.
 

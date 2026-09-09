@@ -1,0 +1,110 @@
+site_name: Agents for Humans Hackathon
+site_description: >-
+  Four agent systems built with the Strands Agents SDK - BidWright,
+  ClaimClarity, GlacierWatch and Trinetra.
+site_url: https://akashtalole.github.io/Agents-for-Humans-Hackathon/
+repo_url: https://github.com/akashtalole/Agents-for-Humans-Hackathon
+repo_name: akashtalole/Agents-for-Humans-Hackathon
+edit_uri: ""
+
+# Built from a staging tree rather than the repo directly - see
+# scripts/build_docs.py for why. Run that script before `mkdocs build`;
+# this directory does not exist until you do.
+docs_dir: .mkdocs-build/docs
+site_dir: .mkdocs-build/site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - footnotes
+  - toc:
+      permalink: true
+      # GitHub-compatible anchors. These documents are read on GitHub too,
+      # and its slugifier turns '&' into a double hyphen where
+      # Python-Markdown's default collapses it - so a heading link written
+      # for GitHub would silently 404 on the built site.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+
+# Paths mirror the repository layout, which is what lets the existing
+# relative links in these files resolve without rewriting.
+nav:
+  - Home: index.md
+  - Setup: SETUP.md
+  - Testing: TESTING.md
+  - Projects:
+      - BidWright: BIDWRIGHT.md
+      - ClaimClarity: CLAIMCLARITY.md
+      - GlacierWatch: GLACIERWATCH.md
+      - Trinetra: TRINETRA.md
+  - Deployment:
+      - Overview: deploy/README.md
+      - From AWS CloudShell: deploy/CLOUDSHELL.md
+      - AgentCore (BidWright + ClaimClarity): deploy/cloudshell/README.md
+      - AgentCore (Trinetra): deploy/trinetra/README.md
+      - ECS Express - BidWright: deploy/ecs-express/bidwright/README.md
+      - ECS Express - ClaimClarity: deploy/ecs-express/claimclarity/README.md
+      - ECS Express - GlacierWatch: deploy/ecs-express/glacierwatch/README.md
+      - ECS Express - Trinetra dashboard: deploy/ecs-express/trinetra/README.md
+      - ECS Express - Trinetra A2A: deploy/ecs-express/trinetra-a2a/README.md
+  - Per-project guides:
+      - BidWright:
+          - Testing: docs/bidwright/TESTING.md
+          - Demo flow: docs/bidwright/DEMO_FLOW.md
+          - Judging criteria: docs/bidwright/JUDGING_CRITERIA.md
+          - Devpost submission: docs/bidwright/DEVPOST_SUBMISSION.md
+      - ClaimClarity:
+          - Testing: docs/claimclarity/TESTING.md
+          - Demo flow: docs/claimclarity/DEMO_FLOW.md
+          - Judging criteria: docs/claimclarity/JUDGING_CRITERIA.md
+          - Devpost submission: docs/claimclarity/DEVPOST_SUBMISSION.md
+      - GlacierWatch:
+          - Testing: docs/glacierwatch/TESTING.md
+          - Demo flow: docs/glacierwatch/DEMO_FLOW.md
+          - Judging criteria: docs/glacierwatch/JUDGING_CRITERIA.md
+          - Devpost submission: docs/glacierwatch/DEVPOST_SUBMISSION.md
+      - Trinetra:
+          - Testing: docs/trinetra/TESTING.md
