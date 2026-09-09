@@ -1,10 +1,26 @@
 #!/usr/bin/env bash
-# Build the Trinetra web UI image on AWS CodeBuild (no local Docker needed -
+# Build the Trinetra A2A agent image on AWS CodeBuild (no local Docker needed -
 # runnable entirely from AWS CloudShell) and deploy it to Amazon ECS Express
 # Mode - a managed, autoscaled HTTPS service with no cluster, task
 # definition, load balancer, or VPC to hand-configure. Idempotent - safe to
 # re-run (re-running triggers a fresh CodeBuild build and updates the
 # service in place if one already exists).
+#
+# WHAT MAKES THIS ONE DIFFERENT FROM THE DASHBOARD DEPLOYMENT NEXT DOOR:
+# an A2A agent card advertises the URL peers should call back on, and a
+# container cannot know the address a load balancer answers on. So this
+# deploys in two phases - create the service, read the real public endpoint
+# out of the service's ingressPaths, then update the service with
+# TRINETRA_A2A_PUBLIC_URL set to it so the published card is correct. Do not
+# shortcut this by guessing a hostname from the service name: a card that
+# advertises a wrong URL is worse than one that advertises none, because a
+# peer will resolve it, fail, and have no way to distinguish a bad address
+# from a service that is merely down.
+#
+# It also exposes a MACHINE-facing surface rather than a human one. The
+# dashboard next door is for a control room behind whatever access control
+# NTKMA puts in front of it; this is reachable by other agents. Read
+# README.md's security section before pointing it at the open internet.
 #
 # This is deliberately different from deploy/ecs-express/glacierwatch/'s
 # setup.sh, which builds and pushes the image with a local `docker build` -
@@ -30,18 +46,20 @@
 #   4. Creates an ECR repository if needed.
 #   5. Creates or updates a CodeBuild project (source: this repo's public
 #      GitHub URL, at --branch) and starts a build - CodeBuild builds
-#      Dockerfile.trinetra.webapp and pushes it to ECR (see buildspec.yml
+#      Dockerfile.trinetra.a2a and pushes it to ECR (see buildspec.yml
 #      in this directory). Polls until the build finishes, printing a
 #      CloudWatch Logs pointer on failure. CodeBuild never sees
 #      ANTHROPIC_API_KEY or any model credential - see buildspec.yml's own
 #      comment on why.
 #   6. Creates (first run) or updates (subsequent runs) the
-#      "trinetra-webui" Express Gateway Service, passing ANTHROPIC_API_KEY
+#      "trinetra-a2a" Express Gateway Service, passing ANTHROPIC_API_KEY
 #      from your local environment/.env into the container as a runtime
 #      environment variable - a separate step from the CodeBuild image
 #      build above.
-#   7. Writes a deployment manifest (default
-#      ~/.trinetra-ecs-express-deployment.json) recording the service ARN
+#   7. Reads the real public endpoint back and re-updates the service so
+#      the agent card advertises it (see the two-phase note above).
+#   8. Writes a deployment manifest (default
+#      ~/.trinetra-a2a-ecs-express-deployment.json) recording the service ARN
 #      and CodeBuild project name, for teardown.sh and future re-runs.
 #
 # COST WARNING: this creates real, billable AWS resources - CodeBuild build
@@ -56,13 +74,14 @@
 
 set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=common.sh
-source "$SCRIPT_DIR/common.sh"
+# Reuses the sibling deployment's helper library rather than duplicating it.
+# shellcheck source=../trinetra/common.sh
+source "$SCRIPT_DIR/../trinetra/common.sh"
 
-SERVICE_NAME="trinetra-webui"
-ECR_REPO_NAME="trinetra-webui"
-CODEBUILD_PROJECT_NAME="trinetra-webui-build"
-CODEBUILD_ROLE_NAME="trinetra-codebuild-webui-role"
+SERVICE_NAME="trinetra-a2a"
+ECR_REPO_NAME="trinetra-a2a"
+CODEBUILD_PROJECT_NAME="trinetra-a2a-build"
+CODEBUILD_ROLE_NAME="trinetra-codebuild-a2a-role"
 REGION_OVERRIDE=""
 BRANCH_OVERRIDE=""
 DRY_RUN=0
@@ -104,7 +123,7 @@ capture() {
     fi
 }
 
-log_step "Trinetra web UI -> AWS CodeBuild + Amazon ECS Express Mode setup"
+log_step "Trinetra A2A agent -> AWS CodeBuild + Amazon ECS Express Mode setup"
 log_warn "This creates BILLABLE AWS resources (CodeBuild build minutes, ECS Express"
 log_warn "Gateway Service, ECR, CloudWatch Logs). Run teardown.sh when you're done."
 if [[ "$DRY_RUN" != "1" ]]; then
@@ -184,7 +203,7 @@ ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_NAME}"
 
 # --- CodeBuild: create/update the project, then build ----------------------
 
-CODEBUILD_SOURCE="{\"type\":\"GITHUB\",\"location\":\"$REPO_URL\",\"buildspec\":\"deploy/ecs-express/trinetra/buildspec.yml\"}"
+CODEBUILD_SOURCE="{\"type\":\"GITHUB\",\"location\":\"$REPO_URL\",\"buildspec\":\"deploy/ecs-express/trinetra-a2a/buildspec.yml\"}"
 CODEBUILD_ENV="{\"type\":\"LINUX_CONTAINER\",\"image\":\"aws/codebuild/standard:7.0\",\"computeType\":\"BUILD_GENERAL1_SMALL\",\"privilegedMode\":true,\"environmentVariables\":[{\"name\":\"ECR_REPO_URI\",\"value\":\"$ECR_URI\"},{\"name\":\"AWS_ACCOUNT_ID\",\"value\":\"$AWS_ACCOUNT_ID\"}]}"
 
 if aws codebuild batch-get-projects --names "$CODEBUILD_PROJECT_NAME" --region "$REGION" \
@@ -246,7 +265,7 @@ PRIMARY_CONTAINER=$(python3 -c "
 import json
 print(json.dumps({
     'image': '${ECR_URI}:latest',
-    'containerPort': 8000,
+    'containerPort': 9100,
     'environment': [{'name': 'ANTHROPIC_API_KEY', 'value': '''${ANTHROPIC_API_KEY:-}'''}],
 }))
 ")
@@ -269,7 +288,7 @@ else
         --primary-container "$PRIMARY_CONTAINER" \
         --service-name "$SERVICE_NAME" \
         --cpu 1024 --memory 2048 \
-        --health-check-path "/api/status" \
+        --health-check-path "/.well-known/agent-card.json" \
         --scaling-target '{"minTaskCount":1,"maxTaskCount":1}' \
         --region "$REGION")
     if [[ "$DRY_RUN" != "1" ]]; then
@@ -296,12 +315,45 @@ if [[ "$DRY_RUN" != "1" ]]; then
     aws ecs describe-express-gateway-service --service-arn "$SERVICE_ARN" --region "$REGION" || true
 
     log_info ""
-    SERVICE_URL=$(describe_service_url "$SERVICE_ARN" "$REGION")
+    log_step "Phase 2: discovering the real public endpoint so the agent card can advertise it"
+    SERVICE_URL=""
+    # The endpoint is not published the instant the service is created, so
+    # poll rather than reading once and giving up.
+    for attempt in $(seq 1 30); do
+        SERVICE_URL=$(describe_service_url "$SERVICE_ARN" "$REGION")
+        [[ -n "$SERVICE_URL" ]] && break
+        log_info "  ...no public endpoint yet (attempt $attempt/30), waiting 20s"
+        sleep 20
+    done
+
     if [[ -n "$SERVICE_URL" ]]; then
-        log_ok "Service URL: $SERVICE_URL"
+        log_ok "Public endpoint: $SERVICE_URL"
+        log_step "Re-updating the service so the agent card advertises $SERVICE_URL"
+        # Values are passed through the environment rather than interpolated
+        # into the Python source, so an API key containing a quote cannot
+        # break out of the string or land in a process listing mangled.
+        A2A_CONTAINER=$(ECR_URI="$ECR_URI" SERVICE_URL="$SERVICE_URL" python3 -c "
+import json, os
+print(json.dumps({
+    'image': os.environ['ECR_URI'] + ':latest',
+    'containerPort': 9100,
+    'environment': [
+        {'name': 'ANTHROPIC_API_KEY', 'value': os.environ.get('ANTHROPIC_API_KEY', '')},
+        {'name': 'TRINETRA_A2A_PUBLIC_URL', 'value': os.environ['SERVICE_URL']},
+        {'name': 'TRINETRA_A2A_PORT', 'value': '9100'},
+    ],
+}))
+")
+        run aws ecs update-express-gateway-service \
+            --service-arn "$SERVICE_ARN" \
+            --primary-container "$A2A_CONTAINER" \
+            --region "$REGION"
+        log_ok "Agent card will be published at: ${SERVICE_URL%/}/.well-known/agent-card.json"
+        log_info "(the update rolls out over a minute or two before the card reflects the new URL)"
         manifest_write "service_url=$SERVICE_URL"
     else
-        log_warn "No public ingress endpoint reported yet - the service is still provisioning."
+        log_warn "No public ingress endpoint after 10 minutes - the service may still be provisioning."
+        log_warn "The agent card will advertise the container's own bind address until you re-run this script."
         log_info "Read it later with:"
         log_info "  aws ecs describe-express-gateway-service --service-arn $SERVICE_ARN --region $REGION \\"
         log_info "    --query 'service.activeConfigurations[].ingressPaths[?accessType==\`PUBLIC\`].endpoint' --output text"
@@ -314,6 +366,8 @@ fi
 log_info ""
 log_info "Next steps:"
 log_info "  - Check status any time:  aws ecs describe-express-gateway-service --service-arn <arn>"
+log_info "  - Verify the published card:  curl <service-url>/.well-known/agent-card.json"
+log_info "  - Point a peer at it:         that URL is what goes in another agent's peer registry."
 log_info "  - Re-run this script after a code change (git push it first!) to rebuild via"
 log_info "    CodeBuild and update the service in place."
 log_info "  - Tear everything down:   deploy/ecs-express/trinetra/teardown.sh"

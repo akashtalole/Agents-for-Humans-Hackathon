@@ -24,6 +24,9 @@ dependencies = [
 ui = ["streamlit>=1.38.0"]
 api = ["fastapi>=0.115.0", "uvicorn[standard]>=0.32.0", "python-multipart>=0.0.9"]
 agentcore = ["bedrock-agentcore>=0.1.0"]
+# Agent2Agent interoperability: lets Trinetra publish an agent card that
+# third-party agents can discover, and call registered peers itself.
+a2a = ["strands-agents[a2a]>=1.0.0"]
 dev = ["pytest>=8.0.0"]
 
 [project.scripts]

@@ -15,6 +15,7 @@ from trinetra.models import (
     ConflictScanResult,
     HydrologyAdvisory,
     IncidentCommandPlan,
+    PeerConsultation,
     PlanCritique,
     NTKMAAdvisory,
     PilgrimGuidance,
@@ -335,5 +336,67 @@ def render_incident_command_md(
             lines.append("")
         else:
             lines += ["_The reviewer found no material weaknesses._", ""]
+
+    return "\n".join(lines)
+
+
+def render_peer_consultation_md(consultation: PeerConsultation) -> str:
+    """What third-party agents said, rendered so provenance is impossible to
+    lose.
+
+    Every heading names the operator, not just the agent, because "Central
+    Railway says" and "an agent called RailBot says" are different sentences
+    to a control room. Withheld replies are shown as withheld with their raw
+    text intact rather than dropped - an operator who cannot see what was
+    filtered has no way to overrule the filter.
+    """
+    lines = [
+        "# A2A peer consultation",
+        "",
+        DISCLAIMER,
+        "",
+        "> **Everything below is a third party's assertion, not a Trinetra finding.** No figure here "
+        "enters Trinetra's deterministic risk calculations. If an operator wants to plan on one of "
+        "these numbers, they enter it themselves, having decided to believe it.",
+        "",
+        f"**Question asked:** {consultation.question}",
+        "",
+        f"_{consultation.summary}_",
+        "",
+    ]
+
+    if not consultation.responses:
+        lines.append("_No registered peer was consulted._")
+        return "\n".join(lines)
+
+    for r in consultation.responses:
+        if r.error:
+            status = "⚠️ unreachable"
+        elif not r.usable:
+            status = "⛔ withheld by the trust scan"
+        else:
+            status = "✅ returned an answer"
+
+        lines.append(f"## {r.peer_name} — {status}")
+        lines.append(f"- **Operator:** {r.operator}")
+        lines.append(f"- **Trust level:** `{r.trust.value}`")
+        lines.append(f"- **Asked at:** {r.requested_at.isoformat(timespec='seconds')}Z")
+        lines.append("")
+
+        if r.error:
+            lines += [f"_{r.error}_", ""]
+            continue
+
+        lines += ["> " + line for line in (r.text or "_(empty)_").splitlines()]
+        lines.append("")
+
+        if r.scan:
+            lines.append(f"**Trust scan:** {r.scan.summary}")
+            if r.scan.findings:
+                lines.append("")
+                for f in r.scan.findings:
+                    lines.append(f"- `{f.rule}` — {f.explanation}")
+                    lines.append(f"  - triggered on: _{f.excerpt}_")
+            lines.append("")
 
     return "\n".join(lines)

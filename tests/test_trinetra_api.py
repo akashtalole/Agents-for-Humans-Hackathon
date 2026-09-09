@@ -377,3 +377,47 @@ def test_command_endpoint_rejects_unknown_ghat(client):
 def test_command_endpoint_rejects_incomplete_sos_entry(client):
     resp = client.post("/api/command", json={"sos": [{"description": "collapsed"}]})
     assert resp.status_code == 400
+
+
+def test_a2a_peers_endpoint_returns_the_allowlist(client):
+    resp = client.get("/api/a2a/peers")
+    assert resp.status_code == 200
+    peer_ids = {p["peer_id"] for p in resp.json()["peers"]}
+    assert "irrigation_gangapur" in peer_ids
+
+
+def test_a2a_consult_rejects_an_unregistered_peer_id(client):
+    """The allowlist has to hold at the HTTP edge too - otherwise a caller
+    reaches any agent they like through Trinetra's own credentials."""
+    resp = client.post("/api/a2a/consult", json={"question": "status?", "peer_ids": ["evil_peer"]})
+    assert resp.status_code == 400
+    assert "evil_peer" in resp.json()["detail"]
+
+
+def test_a2a_consult_does_not_accept_a_raw_url(client, monkeypatch):
+    """A URL passed in the body must be ignored, not honoured - peers are
+    addressable by registered id only."""
+    seen: dict = {}
+
+    def fake_consult(question, peer_ids=None, timeout=20.0):
+        from trinetra.models import PeerConsultation
+
+        seen["peer_ids"] = peer_ids
+        return PeerConsultation(question=question, responses=[], summary="stubbed")
+
+    monkeypatch.setattr("trinetra.a2a.client.consult_peers", fake_consult)
+    resp = client.post(
+        "/api/a2a/consult",
+        json={"question": "status?", "base_url": "http://attacker.example/agent"},
+    )
+    assert resp.status_code == 200
+    assert seen["peer_ids"] is None
+
+
+def test_a2a_consult_requires_a_question(client):
+    assert client.post("/api/a2a/consult", json={"question": "  "}).status_code == 400
+
+
+def test_a2a_consult_rejects_an_unknown_capability(client):
+    resp = client.post("/api/a2a/consult", json={"question": "q", "capability": "quantum astrology"})
+    assert resp.status_code == 400

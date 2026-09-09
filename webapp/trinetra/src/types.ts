@@ -258,3 +258,45 @@ export interface CommandResponse {
   conflicts: ConflictScanResult
   critique: PlanCritique | null
 }
+
+export type TrustLevel = 'verified_authority' | 'known_partner' | 'unverified'
+
+export interface PeerAgent {
+  peer_id: string
+  name: string
+  operator: string
+  base_url: string
+  trust: TrustLevel
+  capabilities: string[]
+  note: string
+}
+
+export interface PeerFinding {
+  rule: string
+  excerpt: string
+  explanation: string
+}
+
+export interface PeerResponseScan {
+  safe_to_surface: boolean
+  findings: PeerFinding[]
+  summary: string
+}
+
+export interface PeerResponse {
+  peer_id: string
+  peer_name: string
+  operator: string
+  trust: TrustLevel
+  requested_at: string
+  question: string
+  text: string
+  error: string
+  scan: PeerResponseScan | null
+}
+
+export interface PeerConsultation {
+  question: string
+  responses: PeerResponse[]
+  summary: string
+}

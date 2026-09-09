@@ -11,8 +11,9 @@ import CalibrationView from './components/CalibrationView'
 import FloodRiskView from './components/FloodRiskView'
 import RumorView from './components/RumorView'
 import CommandView from './components/CommandView'
+import MeshView from './components/MeshView'
 
-export type ViewKey = 'overview' | 'pilgrim' | 'admin' | 'twin' | 'flood' | 'rumor' | 'command' | 'calibration'
+export type ViewKey = 'overview' | 'pilgrim' | 'admin' | 'twin' | 'flood' | 'rumor' | 'command' | 'mesh' | 'calibration'
 
 export default function App() {
   const [view, setView] = useState<ViewKey>('overview')
@@ -57,6 +58,7 @@ export default function App() {
                 {view === 'flood' && <FloodRiskView sites={sites} />}
                 {view === 'rumor' && <RumorView />}
                 {view === 'command' && <CommandView sites={sites} />}
+                {view === 'mesh' && <MeshView />}
                 {view === 'calibration' && <CalibrationView />}
               </div>
             )}

@@ -197,3 +197,28 @@ ensure_role_exists() {
     log_step "Attaching $policy_arn to $role_name (idempotent)"
     run aws iam attach-role-policy --role-name "$role_name" --policy-arn "$policy_arn"
 }
+
+
+# Read the real public endpoint ECS Express assigned to a service.
+#
+# Do NOT guess this from the service name. Express Mode returns the URL in
+# service.activeConfigurations[].ingressPaths[], each entry tagged PUBLIC or
+# PRIVATE, and that is the only authoritative source. An A2A agent card that
+# advertises a guessed hostname is worse than one that advertises none: a
+# peer will resolve it, fail, and have no way to tell a wrong address from a
+# down service.
+describe_service_url() {
+    local service_arn="$1" region="$2" endpoint=""
+    endpoint=$(aws ecs describe-express-gateway-service \
+        --service-arn "$service_arn" \
+        --region "$region" \
+        --query 'service.activeConfigurations[].ingressPaths[?accessType==`PUBLIC`].endpoint' \
+        --output text 2>/dev/null | tr -d '\r' | awk 'NF {print $1; exit}') || true
+    [[ -z "$endpoint" || "$endpoint" == "None" ]] && return 0
+    # The endpoint may come back bare or already schemed.
+    if [[ "$endpoint" == http*://* ]]; then
+        printf '%s\n' "$endpoint"
+    else
+        printf 'https://%s\n' "$endpoint"
+    fi
+}

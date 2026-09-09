@@ -1,0 +1,33 @@
+# AWS CodeBuild buildspec for Trinetra's A2A agent image.
+#
+# Builds Dockerfile.trinetra.a2a and pushes it to ECR. As with every other
+# build path in this repo, nothing here touches ANTHROPIC_API_KEY or any
+# model credential - the built image has none baked in. Credentials are
+# injected only when setup.sh creates or updates the ECS Express Gateway
+# Service, a separate step from this build.
+#
+# ECR_REPO_URI and AWS_ACCOUNT_ID come from the CodeBuild project's
+# environment (see setup.sh), so this file needs no editing if the repo name
+# or account changes.
+
+version: 0.2
+
+env:
+  variables:
+    IMAGE_TAG: "latest"
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - echo "Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+  build:
+    commands:
+      - echo "Building Trinetra A2A agent image from Dockerfile.trinetra.a2a..."
+      - docker build -f Dockerfile.trinetra.a2a -t "${ECR_REPO_URI}:${IMAGE_TAG}" .
+  post_build:
+    commands:
+      - echo "Pushing ${ECR_REPO_URI}:${IMAGE_TAG} to ECR..."
+      - docker push "${ECR_REPO_URI}:${IMAGE_TAG}"
+      - echo "Build completed on $(date) - pushed ${ECR_REPO_URI}:${IMAGE_TAG}"

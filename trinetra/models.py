@@ -604,3 +604,103 @@ class PlanCritique(BaseModel):
     weaknesses: list[PlanWeakness] = Field(default_factory=list)
     single_points_of_failure: list[str] = Field(default_factory=list)
     overall_verdict: str = Field(description="Whether the plan is sound enough to execute, and why")
+
+
+# --------------------------------------------------------------------------
+# A2A: talking to agents Trinetra does not own
+#
+# At a Kumbh the agencies are genuinely separate - Central Railway, the
+# municipal hospitals, the irrigation department that operates Gangapur Dam,
+# the police, and initiatives like KumbhDoot. Each has information Trinetra
+# cannot compute: how many ICU beds are free, which train is arriving early,
+# what the dam is actually about to release.
+#
+# The Agent2Agent protocol is how that connection is made. The design problem
+# it creates is the one these models exist to handle: a peer agent's output is
+# UNTRUSTED INPUT. It may be wrong, stale, compromised, or carrying text
+# shaped like instructions to Trinetra. So a peer claim is never a fact here -
+# it is an assertion, tagged with who made it and when, and it is structurally
+# barred from entering the deterministic layers (hydrology, simulator,
+# allocator) that Trinetra's own safety numbers come from.
+# --------------------------------------------------------------------------
+
+
+class TrustLevel(str, Enum):
+    """How much weight a peer's assertion may carry. This is about the
+    OPERATOR, not the transport - a verified authority reached over an
+    unauthenticated URL is still not verified."""
+
+    VERIFIED_AUTHORITY = "verified_authority"
+    KNOWN_PARTNER = "known_partner"
+    UNVERIFIED = "unverified"
+
+
+class PeerAgent(BaseModel):
+    """A third-party A2A agent Trinetra is permitted to talk to.
+
+    Registration is an allowlist, not a directory: Trinetra will not call a
+    URL that is not in it, because agent discovery on an open network is
+    exactly how an incident commander ends up quoting a stranger.
+    """
+
+    peer_id: str
+    name: str
+    operator: str = Field(description="The real organisation behind it, e.g. 'Central Railway'")
+    base_url: str
+    trust: TrustLevel = TrustLevel.UNVERIFIED
+    capabilities: list[str] = Field(
+        default_factory=list, description="What this peer claims it can answer, for routing"
+    )
+    note: str = ""
+
+
+class PeerFinding(BaseModel):
+    rule: str
+    excerpt: str
+    explanation: str
+
+
+class PeerResponseScan(BaseModel):
+    """Result of the deterministic scan over a peer's reply."""
+
+    safe_to_surface: bool
+    findings: list[PeerFinding] = Field(default_factory=list)
+    summary: str = ""
+
+
+class PeerResponse(BaseModel):
+    """One peer's answer, permanently tagged with its provenance.
+
+    `authoritative` is not a field a caller may set. It is always False, and a
+    test pins it: nothing arriving over A2A is allowed to become a number
+    Trinetra plans with. Peer input is context for a human and for the
+    commander agent's judgment - never an input to the deterministic core.
+    """
+
+    peer_id: str
+    peer_name: str
+    operator: str
+    trust: TrustLevel
+    requested_at: datetime = Field(default_factory=datetime.utcnow)
+    question: str
+    text: str = Field(default="", description="The peer's reply, verbatim and unedited")
+    error: str = ""
+    scan: PeerResponseScan | None = None
+
+    @property
+    def authoritative(self) -> bool:
+        """Always False. See the class docstring - this is a structural
+        guarantee, not a policy someone can flip."""
+        return False
+
+    @property
+    def usable(self) -> bool:
+        return not self.error and bool(self.text) and (self.scan is None or self.scan.safe_to_surface)
+
+
+class PeerConsultation(BaseModel):
+    """What every peer said about one question, for a human to read."""
+
+    question: str
+    responses: list[PeerResponse] = Field(default_factory=list)
+    summary: str = ""

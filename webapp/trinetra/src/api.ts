@@ -4,6 +4,8 @@ import type {
   CommandResponse,
   FloodRiskResponse,
   NTKMAAdvisory,
+  PeerAgent,
+  PeerConsultation,
   PilgrimGuidance,
   RumorResponse,
   SafetyTriage,
@@ -134,4 +136,12 @@ export interface CommandRequest {
 
 export function runIncidentCommand(body: CommandRequest) {
   return postJSON<CommandResponse>('/api/command', body)
+}
+
+export function fetchPeers() {
+  return getJSON<{ peers: PeerAgent[] }>('/api/a2a/peers')
+}
+
+export function consultPeers(question: string, peerIds?: string[]) {
+  return postJSON<PeerConsultation>('/api/a2a/consult', { question, peer_ids: peerIds })
 }

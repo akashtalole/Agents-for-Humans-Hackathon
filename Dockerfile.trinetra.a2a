@@ -1,0 +1,30 @@
+# Trinetra as an A2A agent: the machine-facing surface that third-party
+# agents discover and call.
+#
+# Separate from Dockerfile.trinetra.webapp on purpose. That image serves the
+# operator dashboard (React + FastAPI) to humans; this one serves the A2A
+# protocol to other agents and ships no frontend at all, so it is smaller and
+# can be scaled and restricted independently of the control-room UI.
+#
+# Built by AWS CodeBuild in deploy/ecs-express/trinetra-a2a/setup.sh. As with
+# every other build path in this repo, CodeBuild never sees ANTHROPIC_API_KEY
+# - no model credential is baked into the image. The key is injected only when
+# the ECS Express Gateway Service is created or updated.
+#
+# Local run (optional):
+#   docker build -f Dockerfile.trinetra.a2a -t trinetra-a2a .
+#   docker run -p 9100:9100 -e ANTHROPIC_API_KEY=... trinetra-a2a
+#   curl http://localhost:9100/.well-known/agent-card.json
+
+FROM python:3.11-slim AS runtime
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY trinetra/ ./trinetra/
+COPY server_trinetra_a2a.py ./
+
+# The a2a extra pulls in the official a2a-sdk that Strands' A2AServer builds on.
+RUN pip install --no-cache-dir -e ".[a2a]"
+
+EXPOSE 9100
+CMD ["python", "server_trinetra_a2a.py"]

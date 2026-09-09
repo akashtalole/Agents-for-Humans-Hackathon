@@ -471,6 +471,58 @@ async def incident_command(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     }
 
 
+# --- A2A: third-party agent interoperability ---------------------------------
+
+
+@app.get("/api/a2a/peers")
+async def a2a_peers() -> dict[str, Any]:
+    """The allowlist of third-party agents Trinetra may call."""
+    from trinetra.a2a.registry import load_peers
+
+    return {"peers": [p.model_dump(mode="json") for p in load_peers().values()]}
+
+
+@app.post("/api/a2a/consult")
+async def a2a_consult(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Ask registered peers a question.
+
+    Note what this endpoint does NOT accept: a URL. Peers are addressed by
+    their registered id only, so no caller can talk Trinetra into calling an
+    arbitrary agent by passing one in.
+    """
+    from trinetra.a2a.client import consult_peers
+    from trinetra.a2a.registry import is_allowed, peers_for_capability
+
+    question = (body.get("question") or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="question is required")
+
+    peer_ids = body.get("peer_ids")
+    if peer_ids is not None:
+        unknown = [pid for pid in peer_ids if not is_allowed(pid)]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not registered A2A peers: {', '.join(unknown)}. See GET /api/a2a/peers.",
+            )
+
+    capability = (body.get("capability") or "").strip()
+    if capability:
+        matched = [p.peer_id for p in peers_for_capability(capability)]
+        if not matched:
+            raise HTTPException(
+                status_code=400, detail=f"No registered peer declares a capability matching '{capability}'"
+            )
+        peer_ids = matched
+
+    timeout = float(body.get("timeout", 20.0))
+    loop = asyncio.get_event_loop()
+    consultation = await loop.run_in_executor(
+        _executor, lambda: consult_peers(question, peer_ids=peer_ids, timeout=timeout)
+    )
+    return consultation.model_dump(mode="json")
+
+
 # Mounted LAST so /api/* routes always take priority over the SPA catch-all.
 _DIST_DIR = Path(__file__).resolve().parent.parent / "webapp" / "trinetra" / "dist"
 if _DIST_DIR.is_dir():

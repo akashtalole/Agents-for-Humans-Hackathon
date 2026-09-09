@@ -35,6 +35,7 @@ from trinetra.orchestrator import (
 from trinetra.models import RumorReport, SOSReport
 from trinetra.rendering import (
     render_incident_command_md,
+    render_peer_consultation_md,
     render_calibration_md,
     render_compound_risk_md,
     render_pilgrim_guidance_md,
@@ -144,6 +145,26 @@ def main(argv: list[str] | None = None) -> int:
     cmd_parser.add_argument("--no-rainfall", action="store_true")
     cmd_parser.add_argument("--no-red-team", action="store_true", help="Skip the adversarial plan review")
     cmd_parser.add_argument("--out", default="output")
+
+    subparsers.add_parser("a2a-peers", help="List the registered A2A peer agents (the allowlist)")
+
+    consult_parser = subparsers.add_parser(
+        "a2a-ask", help="Ask registered third-party A2A agents a question"
+    )
+    consult_parser.add_argument("question")
+    consult_parser.add_argument("--peer", action="append", default=None, dest="peers",
+                                help="Restrict to these peer ids (repeatable)")
+    consult_parser.add_argument("--capability", help="Route to peers declaring this capability")
+    consult_parser.add_argument("--timeout", type=float, default=20.0)
+    consult_parser.add_argument("--out", default="output")
+
+    serve_parser = subparsers.add_parser(
+        "a2a-serve", help="Expose Trinetra to third-party agents over the A2A protocol"
+    )
+    serve_parser.add_argument("--host", default="127.0.0.1")
+    serve_parser.add_argument("--port", type=int, default=9100)
+    serve_parser.add_argument("--http-url", default=None,
+                              help="Public URL to advertise in the agent card, if behind a proxy")
 
     subparsers.add_parser("status", help="Show which model provider Trinetra will use")
 
@@ -287,6 +308,51 @@ def main(argv: list[str] | None = None) -> int:
         # Non-zero when the plan carries a call a human must make - an
         # unresolved critical conflict or an unfillable critical demand.
         return 1 if (conflicts.has_critical or allocation.unmet_critical) else 0
+
+    if args.command == "a2a-peers":
+        from trinetra.a2a.registry import load_peers
+
+        peers = load_peers()
+        print(f"{len(peers)} registered A2A peer(s). Trinetra will not call a URL that is not listed here.\n")
+        for peer in peers.values():
+            print(f"  {peer.peer_id}  [{peer.trust.value}]")
+            print(f"    {peer.name} — {peer.operator}")
+            print(f"    {peer.base_url}")
+            print(f"    capabilities: {', '.join(peer.capabilities) or '(none declared)'}")
+            if peer.note:
+                print(f"    note: {peer.note}")
+            print()
+        return 0
+
+    if args.command == "a2a-ask":
+        from trinetra.a2a.client import consult_peers
+        from trinetra.a2a.registry import peers_for_capability
+
+        peer_ids = args.peers
+        if args.capability:
+            matched = [p.peer_id for p in peers_for_capability(args.capability)]
+            if not matched:
+                print(f"No registered peer declares a capability matching '{args.capability}'.",
+                      file=sys.stderr)
+                return 2
+            peer_ids = matched
+
+        consultation = consult_peers(args.question, peer_ids=peer_ids, timeout=args.timeout)
+        md = render_peer_consultation_md(consultation)
+        print(md)
+        _write(args.out, "peer_consultation.md", md)
+        # Non-zero when nothing usable came back, so this is scriptable as a
+        # check rather than only a report to read.
+        return 0 if any(r.usable for r in consultation.responses) else 1
+
+    if args.command == "a2a-serve":
+        from trinetra.a2a.server import build_a2a_server
+
+        server = build_a2a_server(host=args.host, port=args.port, http_url=args.http_url)
+        print(f"Trinetra A2A agent card: {server.agent_card_url}")
+        print("Serving. Third-party agents can now discover and call Trinetra. Ctrl-C to stop.")
+        server.serve()
+        return 0
 
     return 1
 
