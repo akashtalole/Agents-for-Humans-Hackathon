@@ -110,8 +110,11 @@ What appears to sit between them is the product of the two. During Kumbh, those 
 Ramkund, 8,000 people, 22,000 cusecs (80-minute lead time)
 
   all able-bodied (the naive plan)       egress 100.0/min   clears  80.0 min   margin   0.0 min   elevated
-  realistic mix (40% elderly)            egress  79.5/min   clears 100.6 min   margin -20.6 min   CRITICAL
+    100% standard
+  realistic mix                          egress  79.5/min   clears 100.6 min   margin -20.6 min   CRITICAL
+    50% standard / 40% elderly or mobility-limited / 10% with small children
   elderly-heavy Shahi Snan morning       egress  66.3/min   clears 120.8 min   margin -40.8 min   CRITICAL
+    25% standard / 75% elderly or mobility-limited
 ```
 
 The able-bodied plan reads as *exactly* feasible — zero margin, appearing to just work. The realistic one is twenty minutes short. That gap is the entire point of the module.
