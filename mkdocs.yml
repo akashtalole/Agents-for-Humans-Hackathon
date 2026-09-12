@@ -108,3 +108,6 @@ nav:
           - Devpost submission: docs/glacierwatch/DEVPOST_SUBMISSION.md
       - Trinetra:
           - Testing: docs/trinetra/TESTING.md
+          - Devpost submission: docs/trinetra/DEVPOST_SUBMISSION.md
+          - builder.aws blog (Strands + Kumbh): docs/trinetra/BLOG_BUILDER_AWS.md
+          - builder.aws blog (AWS deployment): docs/trinetra/BLOG_BUILDER_AWS_DEPLOYMENT.md

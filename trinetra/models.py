@@ -179,6 +179,91 @@ class CrowdSignal(BaseModel):
     outflow_rate_per_min: int
 
 
+# --------------------------------------------------------------------------
+# Live ThingsBoard telemetry (github.com/akashtalole/KumbhDigiTwin).
+#
+# This is a second, independent source of ghat/river state - not a
+# replacement for CrowdSignal/RiverStage above, which stay as the
+# simulator-facing contract. The point of a second source is the same as
+# the twin's own stated design philosophy: "two models, neither
+# authoritative." Where they agree, that is corroboration. Where they
+# disagree, LiveSignalCrossCheck reports the disagreement rather than
+# picking a winner - see tools/live_signals.py.
+# --------------------------------------------------------------------------
+
+
+class GhatLiveReading(BaseModel):
+    """One ghat's live telemetry as reported by a ThingsBoard Ghat asset
+    (KumbhDigiTwin's asset-profiles/ghat.json + calculated-fields.json).
+
+    los_grade is the Fruin pedestrian Level-of-Service scale (A best, F
+    worst; grade boundaries are density in people/sqm: A<1, B<2, C<3, D<4,
+    E<5, F>=5) - a different, and more physically grounded, crush-risk
+    measure than Trinetra's own occupancy-percentage-of-safe-capacity. It is
+    reported alongside occupancy_pct rather than converted into it, because
+    the two can disagree (a ghat can be under its stated safe_capacity while
+    already at LOS F if that capacity figure is generous) and that
+    disagreement is itself useful information.
+    """
+
+    ghat_id: str
+    thingsboard_asset_name: str
+    fetched_at: datetime
+    pax_count: int | None
+    density_pax_per_sqm: float | None
+    occupancy_pct: float | None
+    los_grade: str | None
+    reported_safe_capacity: int | None
+    reported_area_sqm: float | None
+
+
+class RiverGaugeReading(BaseModel):
+    """Live water-level telemetry from a ThingsBoard WaterLevelGauge device
+    attached to a ghat asset (one gauge per ghat in KumbhDigiTwin, named
+    "{asset name} :: level"). This measures river STAGE at the ghat, not
+    Gangapur Dam discharge volume - it is a different point in the same
+    causal chain as DamRelease (a dam release raises stage at the ghats,
+    with a travel-time lag), not the same quantity in different units. See
+    tools/live_signals.py for how the two are cross-checked rather than
+    conflated.
+
+    derived_stage applies the RiverStage ordering to the live level/trend
+    reading using the gauge's own warning_level_m/danger_level_m attributes
+    - both explicitly labeled "UNCALIBRATED placeholder" in KumbhDigiTwin's
+    own provisioning data, the same honesty this repo applies to its own
+    numbers, so this is a structural cross-check (does the live reading
+    cross a threshold) rather than a claim that either threshold is the
+    real one.
+    """
+
+    ghat_id: str
+    thingsboard_device_name: str
+    fetched_at: datetime
+    level_m: float | None
+    trend_cm_per_hr: float | None
+    warning_level_m: float | None
+    danger_level_m: float | None
+    derived_stage: RiverStage | None
+
+
+class LiveSignalCrossCheck(BaseModel):
+    """Compares Trinetra's own bundled ghat data (sites.json) against a live
+    GhatLiveReading for the same ghat. Both figures are estimates from
+    independent sources - this never picks one as correct, it reports
+    whether they agree and by how much, so a human decides which (if
+    either) to trust."""
+
+    ghat_id: str
+    trinetra_safe_capacity: int
+    thingsboard_safe_capacity: int | None
+    capacity_ratio: float | None = Field(
+        description="thingsboard_safe_capacity / trinetra_safe_capacity, if both are known. "
+        "1.0 means they agree; far from 1.0 means the two sources disagree about how many "
+        "people this ghat can safely hold."
+    )
+    agrees_within_20pct: bool | None
+
+
 class InterventionAction(str, Enum):
     ROUTE_DIVERSION = "route_diversion"
     GATE_CLOSURE = "gate_closure"
@@ -207,6 +292,51 @@ class CommandBrief(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     overall_status: RiskLevel
     recommendations: list[InterventionRecommendation]
+    summary: str
+
+
+# --------------------------------------------------------------------------
+# Kshetra Netra: live monitoring agent (see agents/live_monitor.py)
+#
+# Unlike every other agent in this repo, this one is a genuine multi-step
+# tool user rather than a single structured-extraction call: it is handed
+# tools that hit live ThingsBoard telemetry and Trinetra's own deterministic
+# simulator/conflict/calibration code, and decides for itself which to call
+# before producing this brief. It still never executes anything - see
+# checked_signals/data_gaps below, which exist so a human reviewing the
+# brief can tell what it actually looked at versus what it is inferring.
+# --------------------------------------------------------------------------
+
+
+class MonitoringFinding(BaseModel):
+    """One thing Kshetra Netra checked and what it found. severity follows
+    the same RiskLevel ordering as everywhere else in this repo."""
+
+    signal_source: str = Field(description='e.g. "thingsboard:ramkund", "simulator", "conflict_scan"')
+    observation: str = Field(description="What the tool call actually returned - cite numbers, not vibes.")
+    severity: RiskLevel
+
+
+class MonitoringBrief(BaseModel):
+    """Kshetra Netra's output: a live-monitoring pass across whichever
+    signals it decided to check, given to a human operator to act on."""
+
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    overall_status: RiskLevel
+    findings: list[MonitoringFinding]
+    checked_signals: list[str] = Field(
+        description="Every tool call the agent actually made this pass - lets a human verify it did not "
+        "just answer from the prompt without checking anything live."
+    )
+    data_gaps: list[str] = Field(
+        default_factory=list,
+        description="Signals the agent wanted but could not get (e.g. a ghat with no ThingsBoard mapping, "
+        "a failed live fetch) - never silently treated as 'all clear'.",
+    )
+    recommended_action: str = Field(
+        description="A recommendation for a human operator. Never a claim that anything was or will be "
+        "auto-executed - see TRINETRA.md's human-authority framing, which applies to this agent too."
+    )
     summary: str
 
 
@@ -244,6 +374,18 @@ class SimulationScenario(BaseModel):
 
 
 class GhatSimResult(BaseModel):
+    """One ghat's outcome in a simulated window.
+
+    Read peak_occupancy_pct_of_safe_capacity together with the queue fields,
+    never alone. Occupancy saturates by construction - the simulator blocks
+    admission at 150% of safe capacity - so past that point the percentage
+    stops responding to how many more people arrive. Between roughly 100k and
+    1M pilgrims in the same scenario it moves only from ~160% to ~181%. The
+    queue fields are where the rest of the crowd actually shows up, and in a
+    narrow approach lane they are the more dangerous number of the two: the
+    2003 Kalaram Mandir deaths happened on the approach, not at the ghat.
+    """
+
     ghat_id: str
     ghat_name: str
     peak_occupancy: int
@@ -251,6 +393,28 @@ class GhatSimResult(BaseModel):
     peak_tick_minute: int
     risk_level: RiskLevel
     bottleneck_routes: list[str]
+    peak_queue_outside: int = Field(
+        default=0,
+        description="Most people held in the approach lane at once, unable to be admitted.",
+    )
+    final_queue_outside: int = Field(
+        default=0,
+        description="People still waiting outside when the simulated window ended.",
+    )
+    queue_still_growing_at_end: bool = Field(
+        default=False,
+        description=(
+            "True if the queue was larger at the end of the window than at its midpoint - "
+            "the backlog is unbounded as far as this model can see, so no clearance time can be quoted."
+        ),
+    )
+    queue_clear_minutes: float = Field(
+        default=0.0,
+        description=(
+            "Minutes to drain final_queue_outside at this ghat's own throughput assuming no further "
+            "arrivals. Meaningless when queue_still_growing_at_end is True."
+        ),
+    )
 
 
 class SimulationReport(BaseModel):
@@ -274,11 +438,26 @@ class NTKMAAdvisory(BaseModel):
     narrative_summary: str
 
 
+class CalibrationCaseKind(str, Enum):
+    """Why a calibration case exists.
+
+    HISTORICAL_INCIDENT cases replay documented Kumbh disasters and must come
+    back CRITICAL. SYNTHETIC_CONTROL cases are constructed, not historical -
+    they exist so the suite can fail. A calibration set made only of disasters
+    is passed by `return CRITICAL`, which is exactly as useful as it sounds.
+    """
+
+    HISTORICAL_INCIDENT = "historical_incident"
+    SYNTHETIC_CONTROL = "synthetic_control"
+
+
 class CalibrationCase(BaseModel):
-    """A real, documented historical incident used to validate the
-    simulator - if Bhavishya Netra doesn't flag conditions resembling one
-    of these as elevated/critical, the simulator isn't trustworthy enough
-    to pitch. See trinetra/data/calibration_cases.json."""
+    """One case the simulator must get right.
+
+    See trinetra/data/calibration_cases.json. `expect_critical` is what makes
+    this a test rather than an assertion: controls that must NOT flag are the
+    only reason a passing run means anything.
+    """
 
     case_id: str
     name: str
@@ -288,6 +467,8 @@ class CalibrationCase(BaseModel):
     cause_summary: str
     source: str
     scenario: SimulationScenario
+    case_kind: CalibrationCaseKind = CalibrationCaseKind.HISTORICAL_INCIDENT
+    expect_critical: bool = True
 
 
 class CalibrationResult(BaseModel):
@@ -295,8 +476,12 @@ class CalibrationResult(BaseModel):
     case_name: str
     real_world_deaths: int
     simulated_peak_risk: RiskLevel
-    correctly_flagged: bool = Field(description="True if simulated_peak_risk is CRITICAL, matching the real outcome")
+    correctly_flagged: bool = Field(
+        description="True if the simulated risk matched what this case expects (CRITICAL, or not-CRITICAL for a control)"
+    )
     note: str
+    case_kind: CalibrationCaseKind = CalibrationCaseKind.HISTORICAL_INCIDENT
+    expect_critical: bool = True
 
 
 # --------------------------------------------------------------------------
@@ -704,3 +889,75 @@ class PeerConsultation(BaseModel):
     question: str
     responses: list[PeerResponse] = Field(default_factory=list)
     summary: str = ""
+
+
+# --------------------------------------------------------------------------
+# Anukaran Netra (अनुकरण नेत्र, "simulation eye"): pushes reproducible,
+# documented synthetic telemetry onto KumbhDigiTwin's real ThingsBoard
+# entities - see agents/scenario_director.py and
+# tools/thingsboard_seed.py.
+#
+# This is the one place in Trinetra that WRITES fabricated-looking numbers
+# anywhere, so the discipline is inverted deliberately and explicitly: the
+# LLM here never picks a number that gets pushed. It picks a *qualitative*
+# scenario (ScenarioDirective) once; every value actually written to
+# ThingsBoard is computed afterward by pure, seeded, documented code (see
+# thingsboard_seed.py's tick math) so a run is reproducible given the same
+# directive and seed, and so nobody can mistake a generated demo reading
+# for a live sensor's - see the pushed telemetry's own honest labeling in
+# TRINETRA.md's Anukaran Netra section.
+# --------------------------------------------------------------------------
+
+
+class ScenarioDirective(BaseModel):
+    """The model's only decision: what STORY this seeding run tells, in
+    bounded structured parameters - never a specific pushed value."""
+
+    narrative: str = Field(description="One or two sentences, for a human operator watching the run.")
+    baseline_multiplier: float = Field(
+        ge=0.2, le=3.0,
+        description="Overall crowd-level multiplier applied to every seeded ghat's safe_capacity-scaled curve. "
+        "1.0 is an ordinary day; values above ~2.0 model conditions approaching or exceeding safe capacity.",
+    )
+    surge_asset_names: list[str] = Field(
+        default_factory=list,
+        description="Which of the known ThingsBoard ghat names get an EXTRA localized surge on top of the "
+        "baseline this cycle. Must be drawn only from the known-ghats list given in the prompt - never invented.",
+    )
+    surge_multiplier: float = Field(
+        default=1.0, ge=1.0, le=2.5,
+        description="Extra multiplier applied only to surge_asset_names, on top of baseline_multiplier.",
+    )
+    flood_intensity: float = Field(
+        default=0.0, ge=0.0, le=1.5,
+        description="0 = calm river at every gauge-equipped ghat. 1.0 = river level approaches each gauge's own "
+        "dangerLevelM threshold. Above 1.0 models a level exceeding that threshold.",
+    )
+    cycle_minutes: int = Field(
+        ge=15, le=360,
+        description="How many simulated minutes this directive's curve spans, peak at the midpoint.",
+    )
+
+
+class SeedingRunSummary(BaseModel):
+    """What one Anukaran Netra invocation actually did - deliberately
+    detailed, since this is the one place in Trinetra where "did it work"
+    means "did real numbers land on a real system", not just "did the
+    model answer"."""
+
+    started_at: datetime
+    finished_at: datetime
+    directive: ScenarioDirective
+    ticks_pushed: int
+    assets_touched: list[str]
+    river_gauges_touched: list[str]
+    skipped_assets: list[str] = Field(
+        default_factory=list, description="Known ghats that exist but were not touched this run, and why."
+    )
+    skipped_river_gauges: list[str] = Field(
+        default_factory=list,
+        description="Ghats with a provisioned WaterLevelGauge device that was NOT seeded this run because its "
+        "warningLevelM/dangerLevelM attributes aren't set - a real ThingsBoard provisioning gap, not a bug: this "
+        "module refuses to invent a threshold rather than push a level with no basis for what it means.",
+    )
+    errors: list[str] = Field(default_factory=list)

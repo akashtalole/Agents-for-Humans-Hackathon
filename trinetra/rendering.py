@@ -9,13 +9,16 @@ from __future__ import annotations
 
 from trinetra.models import (
     AllocationPlan,
+    CalibrationCaseKind,
     CalibrationResult,
     CommandBrief,
     CompoundRiskAssessment,
     ConflictScanResult,
     HydrologyAdvisory,
     IncidentCommandPlan,
+    MonitoringBrief,
     PeerConsultation,
+    SeedingRunSummary,
     PlanCritique,
     NTKMAAdvisory,
     PilgrimGuidance,
@@ -61,6 +64,17 @@ def render_simulation_report_md(report: SimulationReport, advisory: NTKMAAdvisor
             f"- Peak occupancy: {g.peak_occupancy} people "
             f"({g.peak_occupancy_pct_of_safe_capacity}% of safe capacity), at minute {g.peak_tick_minute}"
         )
+        if g.peak_queue_outside:
+            if g.queue_still_growing_at_end:
+                clearance = (
+                    "still growing when the window ended - this model cannot say when it clears"
+                )
+            else:
+                clearance = f"clears in ~{g.queue_clear_minutes:.0f} min if nobody else arrives"
+            lines.append(
+                f"- Held in the approach lane: {g.peak_queue_outside:,} people at peak "
+                f"({g.final_queue_outside:,} still waiting at the end, {clearance})"
+            )
         if g.bottleneck_routes:
             lines.append(f"- Bottleneck route(s): {', '.join(g.bottleneck_routes)}")
         lines.append("")
@@ -81,24 +95,43 @@ def render_simulation_report_md(report: SimulationReport, advisory: NTKMAAdvisor
 
 
 def render_calibration_md(results: list[CalibrationResult]) -> str:
+    incidents = [r for r in results if r.case_kind == CalibrationCaseKind.HISTORICAL_INCIDENT]
+    controls = [r for r in results if r.case_kind == CalibrationCaseKind.SYNTHETIC_CONTROL]
     lines = [
-        "# Bhavishya Netra Calibration Against Real Historical Incidents",
+        "# Bhavishya Netra Calibration",
         "",
-        "Each case below is a real, documented Kumbh crowd-crush disaster. Trinetra's "
-        "simulator replays the documented conditions; if it does not come back CRITICAL, "
-        "the simulator's thresholds are not trustworthy enough to use for real planning.",
+        "Two kinds of case run here. **Historical incidents** replay documented Kumbh "
+        "crowd-crush disasters and must come back CRITICAL. **Synthetic controls** are "
+        "constructed, not historical: ordinary and well-managed days the simulator must "
+        "decline to flag, plus one routing-sensitivity case. The controls are the reason a "
+        "pass means anything - a suite of disasters alone is passed by a model that always "
+        "returns CRITICAL.",
+        "",
+        "This shows the model is internally consistent and responds to routing in the "
+        "expected direction. It does **not** show the thresholds are right for the real "
+        "Nashik ghats: every capacity figure here is Trinetra's own estimate, not NTKMA's.",
         "",
     ]
     all_correct = all(r.correctly_flagged for r in results)
-    lines.append(f"**Result: {'✅ all cases correctly flagged' if all_correct else '⚠️ one or more cases NOT flagged'}**")
+    lines.append(
+        f"**Result: {'✅ all cases behaved as expected' if all_correct else '⚠️ one or more cases did not'}** "
+        f"({len(incidents)} historical incident(s), {len(controls)} control(s))"
+    )
     lines.append("")
-    for r in results:
-        mark = "✅" if r.correctly_flagged else "❌"
-        lines.append(f"## {mark} {r.case_name}")
-        lines.append(f"- Real-world deaths: {r.real_world_deaths}")
-        lines.append(f"- Simulated peak risk: {r.simulated_peak_risk.value.upper()}")
-        lines.append(f"- {r.note}")
-        lines.append("")
+    for heading, group in (("Historical incidents", incidents), ("Synthetic controls", controls)):
+        if not group:
+            continue
+        lines += [f"## {heading}", ""]
+        for r in group:
+            mark = "✅" if r.correctly_flagged else "❌"
+            expectation = "must flag CRITICAL" if r.expect_critical else "must NOT flag"
+            lines.append(f"### {mark} {r.case_name}")
+            if r.case_kind == CalibrationCaseKind.HISTORICAL_INCIDENT:
+                lines.append(f"- Real-world deaths: {r.real_world_deaths}")
+            lines.append(f"- Expectation: {expectation}")
+            lines.append(f"- Simulated peak risk: {r.simulated_peak_risk.value.upper()}")
+            lines.append(f"- {r.note}")
+            lines.append("")
     return "\n".join(lines)
 
 
@@ -399,4 +432,86 @@ def render_peer_consultation_md(consultation: PeerConsultation) -> str:
                     lines.append(f"  - triggered on: _{f.excerpt}_")
             lines.append("")
 
+    return "\n".join(lines)
+
+
+def render_monitoring_brief_md(brief: MonitoringBrief) -> str:
+    """Kshetra Netra's live-monitoring pass. checked_signals/data_gaps are
+    rendered as prominently as the findings themselves - a brief that
+    checked nothing live should not read the same as one that did."""
+    lines = [
+        "# Kshetra Netra — Live Monitoring Brief",
+        "",
+        DISCLAIMER,
+        "",
+        f"**Overall status: {brief.overall_status.value.upper()}**",
+        "",
+        brief.summary,
+        "",
+        "## Signals checked this pass",
+        "",
+    ]
+    if brief.checked_signals:
+        lines += [f"- {s}" for s in brief.checked_signals]
+    else:
+        lines.append("_None — this brief did not call any live/simulation tool. Treat it as unverified._")
+    lines.append("")
+
+    if brief.data_gaps:
+        lines += ["## Data gaps", ""]
+        lines += [f"- {g}" for g in brief.data_gaps]
+        lines.append("")
+
+    lines += ["## Findings", ""]
+    for finding in brief.findings:
+        lines.append(f"### {finding.severity.value.upper()} — {finding.signal_source}")
+        lines.append(finding.observation)
+        lines.append("")
+
+    lines += ["## Recommended action", "", brief.recommended_action, ""]
+    return "\n".join(lines)
+
+
+def render_seeding_run_summary_md(summary: SeedingRunSummary) -> str:
+    """Anukaran Netra's run report. Labeled prominently as generated data,
+    not a live sensor feed - see this function's own banner line - because
+    every other renderer in this file describes something Trinetra
+    measured or computed about the real world, and this is the one
+    exception that writes fabricated-but-documented numbers elsewhere."""
+    d = summary.directive
+    lines = [
+        "# Anukaran Netra — Synthetic Telemetry Run",
+        "",
+        "**This run pushed GENERATED, NOT MEASURED, telemetry onto ThingsBoard.** "
+        "Every value came from documented, seeded, reproducible code (trinetra/tools/thingsboard_seed.py) - "
+        "never a live sensor. Do not mistake a chart populated by this run for a live feed.",
+        "",
+        f"**Scenario:** {d.narrative}",
+        "",
+        f"- Baseline multiplier: {d.baseline_multiplier}",
+        f"- Surge ghats: {', '.join(d.surge_asset_names) if d.surge_asset_names else '_none_'}"
+        + (f" (×{d.surge_multiplier})" if d.surge_asset_names else ""),
+        f"- Flood intensity: {d.flood_intensity}",
+        f"- Cycle length: {d.cycle_minutes} minutes",
+        "",
+        f"**{summary.ticks_pushed} telemetry point(s) pushed** across "
+        f"{len(summary.assets_touched)} ghat(s){f', {len(summary.river_gauges_touched)} with a river gauge' if summary.river_gauges_touched else ''}, "
+        f"in {(summary.finished_at - summary.started_at).total_seconds():.1f}s.",
+        "",
+    ]
+    if summary.assets_touched:
+        lines += ["## Ghats touched", "", *(f"- {a}" for a in summary.assets_touched), ""]
+    if summary.skipped_assets:
+        lines += ["## Skipped", "", *(f"- {s}" for s in summary.skipped_assets), ""]
+    if summary.skipped_river_gauges:
+        lines += [
+            "## River gauges NOT seeded", "",
+            "These have a provisioned device but no warningLevelM/dangerLevelM attributes set on this "
+            "tenant, so no level was pushed - see SeedingRunSummary.skipped_river_gauges's docstring for why "
+            "this is a real ThingsBoard provisioning gap, not a bug.",
+            "",
+            *(f"- {s}" for s in summary.skipped_river_gauges), "",
+        ]
+    if summary.errors:
+        lines += ["## Errors", "", *(f"- {e}" for e in summary.errors), ""]
     return "\n".join(lines)

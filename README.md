@@ -135,12 +135,15 @@ project's clean-clone walkthrough in `docs/<project>/TESTING.md`.
 
 ## Deploying to AWS
 
-All deployment is **optional** — every project runs entirely locally. All of it
-creates **real, billable AWS resources**, and **none of it has been exercised
-against a live AWS account**: the scripts are syntax-checked, shellcheck-clean,
-dry-runnable and grounded in the AWS CLI command reference, but no deployment
-has been performed. Read the relevant README before running anything, and run
-the matching `teardown.sh` when you're done.
+All deployment is **optional** — every project runs entirely locally, and all of
+it creates **real, billable AWS resources**. Run the matching `teardown.sh` when
+you're done.
+
+**Trinetra's dashboard is deployed and live:** <https://tr-f84a1a73e8154b1c88e4d700c96ccb64.ecs.us-east-1.on.aws>
+— built on AWS CodeBuild, running on Amazon ECS Express Mode. The remaining
+deployment paths have **not** been exercised against a live account; they are
+syntax-checked, shellcheck-clean, dry-runnable and grounded in the AWS CLI
+command reference, but unproven. Read the relevant README before running one.
 
 Every script supports `--dry-run`, which prints what it would do and touches
 nothing.

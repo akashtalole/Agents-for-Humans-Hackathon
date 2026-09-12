@@ -19,7 +19,10 @@ authoritative than the report's own per-ghat figures.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import logging
+import os
 import queue
 import threading
 import time
@@ -28,7 +31,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Body, FastAPI, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,6 +39,8 @@ from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
 from trinetra.agents.hydrology_advisor import advise_on_compound_risk
 from trinetra.agents.incident_commander import command_the_incident
+from trinetra.agents.live_monitor import monitor_ghat
+from trinetra.tools.live_signals import ghat_id_from_thingsboard_asset_name, write_back_monitoring_result
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
 from trinetra.agents.red_team import critique_plan
 from trinetra.agents.rumor_analyst import assess_rumor
@@ -73,6 +78,7 @@ from trinetra.tools.simulator import simulate_scenario
 app = FastAPI(title="Trinetra API")
 
 _executor = ThreadPoolExecutor(max_workers=6)
+_logger = logging.getLogger("trinetra.webhooks")
 _jobs: dict[str, dict[str, Any]] = {}
 _lock = threading.Lock()
 
@@ -354,6 +360,102 @@ async def get_calibration() -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(_executor, run_all_calibration_cases)
     return {"results": [r.model_dump(mode="json") for r in results]}
+
+
+# --- Kshetra Netra: live monitoring (real tool-calling agent) --------------
+
+
+@app.post("/api/monitor")
+async def monitor(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Unlike every other endpoint above, this one calls an agent that
+    decides for itself which tools to run (live ThingsBoard telemetry, a
+    lookahead simulation, a calibration check) - see
+    agents/live_monitor.py's module docstring. It costs a model call and can
+    take noticeably longer than the deterministic endpoints above."""
+    ghat_id = (body.get("ghat_id") or "").strip()
+    if not ghat_id:
+        raise HTTPException(status_code=400, detail="ghat_id is required.")
+    if ghat_id not in _GHATS:
+        raise HTTPException(status_code=404, detail=f"Unknown ghat_id '{ghat_id}'.")
+    question = body.get("question")
+    loop = asyncio.get_event_loop()
+    brief = await loop.run_in_executor(_executor, lambda: monitor_ghat(ghat_id, question=question))
+    return {"brief": brief.model_dump(mode="json")}
+
+
+def _run_alarm_triggered_monitoring(ghat_id: str, alarm_type: str, severity: str) -> None:
+    """Runs in the background, after the webhook has already responded 202.
+    Exceptions here are logged, never raised into nothing - a background
+    task with an uncaught exception fails silently and invisibly otherwise,
+    which is exactly the failure mode a safety-relevant integration cannot
+    have."""
+    try:
+        brief = monitor_ghat(
+            ghat_id,
+            question=(
+                f"A ThingsBoard alarm just fired here: '{alarm_type}' (severity {severity}). "
+                "Check what's actually happening and whether it's still current."
+            ),
+        )
+        _logger.info(
+            "alarm-triggered monitoring for %s (%s/%s): overall_status=%s",
+            ghat_id, alarm_type, severity, brief.overall_status.value,
+        )
+        write_back_monitoring_result(ghat_id, brief)
+    except Exception:
+        _logger.exception("alarm-triggered monitoring failed for ghat_id=%s alarm_type=%s", ghat_id, alarm_type)
+
+
+@app.post("/api/webhooks/thingsboard-alarm")
+async def thingsboard_alarm_webhook(
+    response: Response,
+    background_tasks: BackgroundTasks,
+    body: dict[str, Any] = Body(...),
+    x_webhook_secret: str | None = Header(default=None, alias="X-Webhook-Secret"),
+) -> dict[str, Any]:
+    """Inbound trigger: a ThingsBoard alarm rule (already configured on
+    KumbhDigiTwin's tenant, e.g. CrowdDensityCritical, RiverLevelDanger,
+    PanicActivated) calls this instead of Trinetra polling for one. See
+    TRINETRA.md's Kshetra Netra section for the ThingsBoard-side rule-chain
+    configuration this expects, and for why this points at Trinetra's own
+    ECS-hosted backend rather than Bedrock AgentCore directly - AgentCore's
+    InvokeAgentRuntime needs an AWS-SigV4-signed request, which a
+    ThingsBoard REST Call node cannot produce on its own.
+
+    Auth is a shared secret in the X-Webhook-Secret header, deliberately not
+    in the JSON body - a body is more likely to end up in a log line
+    somewhere between ThingsBoard and here than a header most middleboxes
+    treat as opaque.
+
+    Expected body: {"originator_name": "<ThingsBoard entity name>",
+    "alarm_type": "...", "severity": "..."}. Responds immediately (202) and
+    runs the actual monitoring in the background - a control-room alarm rule
+    must not block on a ~10-30s model call.
+    """
+    secret = os.environ.get("TRINETRA_WEBHOOK_SECRET")
+    if not secret:
+        # Fail closed: an unconfigured secret means this endpoint accepts
+        # nothing, not everything. Same posture as ThingsBoard itself being
+        # "not configured" elsewhere in this repo.
+        raise HTTPException(status_code=503, detail="Webhook is not configured (TRINETRA_WEBHOOK_SECRET unset).")
+    if not x_webhook_secret or not hmac.compare_digest(x_webhook_secret, secret):
+        raise HTTPException(status_code=401, detail="Missing or incorrect X-Webhook-Secret header.")
+
+    originator_name = (body.get("originator_name") or "").strip()
+    alarm_type = (body.get("alarm_type") or "unknown").strip()
+    severity = (body.get("severity") or "unknown").strip()
+    if not originator_name:
+        raise HTTPException(status_code=400, detail="originator_name is required.")
+
+    ghat_id = ghat_id_from_thingsboard_asset_name(originator_name)
+    if ghat_id is None:
+        # Not an error: KumbhDigiTwin raises alarms on many entity types
+        # (SanitationBlock, ParkingZone, ...) Trinetra has no ghat for.
+        return {"accepted": False, "reason": f"'{originator_name}' has no mapped Trinetra ghat - ignored."}
+
+    background_tasks.add_task(_run_alarm_triggered_monitoring, ghat_id, alarm_type, severity)
+    response.status_code = 202
+    return {"accepted": True, "ghat_id": ghat_id, "note": "Monitoring in background; result will be written back to ThingsBoard."}
 
 
 # --- Sankat Nirnay: multi-hazard incident command ----------------------------

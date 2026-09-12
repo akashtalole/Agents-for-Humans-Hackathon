@@ -168,7 +168,7 @@ claimclarity run \
 # GlacierWatch — prioritise Himalayan glacial-hazard monitoring (live weather + seismic)
 glacierwatch run
 
-# Trinetra — validate the crowd simulator against two real disasters (no API key needed)
+# Trinetra — validate the crowd simulator against two real disasters and three controls (no API key needed)
 trinetra calibrate
 ```
 

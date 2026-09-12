@@ -9,6 +9,7 @@ advisor layer is mocked, matching the actual architecture.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from trinetra.models import (
     IncidentType,
     InterventionAction,
     InterventionRecommendation,
+    MonitoringBrief,
     NTKMAAdvisory,
     PilgrimGuidance,
     RiskLevel,
@@ -87,12 +89,15 @@ def test_sites_endpoint_returns_real_bundled_geography(client):
     assert len(body["routes"]) > 0
 
 
-def test_calibration_endpoint_both_cases_pass_no_mocking_needed(client):
+def test_calibration_endpoint_all_cases_pass_no_mocking_needed(client):
     resp = client.get("/api/calibration")
     assert resp.status_code == 200
     results = resp.json()["results"]
-    assert len(results) == 2
     assert all(r["correctly_flagged"] for r in results)
+    # Both kinds must reach the client: without the controls a green badge in
+    # the dashboard would be meaningless.
+    assert any(r["case_kind"] == "historical_incident" for r in results)
+    assert any(not r["expect_critical"] for r in results)
 
 
 def test_pilgrim_ask_wiring(client, monkeypatch):
@@ -420,4 +425,113 @@ def test_a2a_consult_requires_a_question(client):
 
 def test_a2a_consult_rejects_an_unknown_capability(client):
     resp = client.post("/api/a2a/consult", json={"question": "q", "capability": "quantum astrology"})
+    assert resp.status_code == 400
+
+
+def test_monitor_endpoint_requires_ghat_id(client):
+    resp = client.post("/api/monitor", json={})
+    assert resp.status_code == 400
+
+
+def test_monitor_endpoint_rejects_unknown_ghat(client):
+    resp = client.post("/api/monitor", json={"ghat_id": "not_a_real_ghat"})
+    assert resp.status_code == 404
+
+
+def test_monitor_endpoint_wiring(monkeypatch, client):
+    """monitor_ghat (the real tool-calling agent) is mocked here, same as
+    every other agent-calling endpoint in this file - it needs an API key
+    to run for real."""
+    from datetime import datetime
+
+    from trinetra.models import MonitoringBrief, MonitoringFinding
+
+    def _fake_monitor_ghat(ghat_id, question=None):
+        assert ghat_id == "ramkund"
+        assert question == "any flood risk?"
+        return MonitoringBrief(
+            generated_at=datetime.utcnow(),
+            overall_status=RiskLevel.ROUTINE,
+            findings=[MonitoringFinding(signal_source="thingsboard:ramkund", observation="LOS grade B", severity=RiskLevel.ROUTINE)],
+            checked_signals=["get_live_ghat_crowd_signal(ramkund)", "get_live_river_gauge(ramkund)"],
+            data_gaps=[],
+            recommended_action="No action needed.",
+            summary="Ramkund is calm.",
+        )
+
+    monkeypatch.setattr(api_module, "monitor_ghat", _fake_monitor_ghat)
+    resp = client.post("/api/monitor", json={"ghat_id": "ramkund", "question": "any flood risk?"})
+    assert resp.status_code == 200
+    body = resp.json()["brief"]
+    assert body["overall_status"] == "routine"
+    assert body["checked_signals"] == ["get_live_ghat_crowd_signal(ramkund)", "get_live_river_gauge(ramkund)"]
+
+
+# --- ThingsBoard alarm webhook (inbound trigger) ----------------------------
+
+
+def test_webhook_fails_closed_when_secret_not_configured(monkeypatch, client):
+    monkeypatch.delenv("TRINETRA_WEBHOOK_SECRET", raising=False)
+    resp = client.post("/api/webhooks/thingsboard-alarm", json={"originator_name": "x"})
+    assert resp.status_code == 503
+
+
+def test_webhook_rejects_missing_or_wrong_secret(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post("/api/webhooks/thingsboard-alarm", json={"originator_name": "x"})
+    assert resp.status_code == 401
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm", json={"originator_name": "x"},
+        headers={"X-Webhook-Secret": "wrong-secret"},
+    )
+    assert resp.status_code == 401
+
+
+def test_webhook_ignores_unmapped_entity_without_error(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm",
+        json={"originator_name": "Some Sanitation Block"},
+        headers={"X-Webhook-Secret": "correct-secret"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["accepted"] is False
+
+
+def test_webhook_accepts_mapped_entity_and_dispatches_in_background(monkeypatch, client):
+    """monitor_ghat (a real, costly agent call) is mocked - only the
+    dispatch wiring is under test here, same discipline as every other
+    agent-calling endpoint."""
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    calls = []
+
+    def fake_monitor_ghat(ghat_id, question=None):
+        calls.append((ghat_id, question))
+        return MonitoringBrief(
+            generated_at=datetime.utcnow(), overall_status=RiskLevel.ROUTINE, findings=[],
+            checked_signals=[], data_gaps=[], recommended_action="none", summary="ok",
+        )
+
+    monkeypatch.setattr(api_module, "monitor_ghat", fake_monitor_ghat)
+    monkeypatch.setattr(api_module, "write_back_monitoring_result", lambda *a, **k: None)
+
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm",
+        json={"originator_name": "Ramkund and near by Ghats", "alarm_type": "CrowdDensityCritical", "severity": "MAJOR"},
+        headers={"X-Webhook-Secret": "correct-secret"},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["accepted"] is True
+    assert body["ghat_id"] == "ramkund"
+    # TestClient runs FastAPI BackgroundTasks synchronously before returning.
+    assert calls == [("ramkund", calls[0][1])]
+    assert "CrowdDensityCritical" in calls[0][1]
+
+
+def test_webhook_requires_originator_name(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm", json={}, headers={"X-Webhook-Secret": "correct-secret"}
+    )
     assert resp.status_code == 400
