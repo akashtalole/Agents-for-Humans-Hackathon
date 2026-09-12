@@ -266,6 +266,21 @@ in the ECS service definition rather than inferred at runtime. If no key is
 found it warns and continues; the service then starts but reports
 `No credentials found` at `/api/status`.
 
+**Re-running `./setup.sh` after a code change updates the running service in
+place** (a fresh CodeBuild build from `--branch`, then
+`update-express-gateway-service`) — this is how you deploy the latest commit
+to an already-live dashboard, not a separate command. It also picks up the
+same environment/`.env` variables again, so editing `.env` and re-running
+updates the live service's environment too.
+
+The same `.env`-fallback pattern also covers `THINGSBOARD_URL`/`_USERNAME`/
+`_PASSWORD`/`_API_KEY` (Kshetra Netra's live signals, Anukaran Netra's
+seeding, the alarm webhook — see TRINETRA.md) and `TRINETRA_WEBHOOK_SECRET`
+(the alarm webhook's shared secret — required for that one endpoint to
+accept anything; unset means it returns 503 for every request). All are
+optional: unset, the deployed service behaves exactly like an unconfigured
+local run for those features, not a startup failure.
+
 ### The A2A agent
 
 ```bash

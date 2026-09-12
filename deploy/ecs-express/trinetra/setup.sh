@@ -37,9 +37,11 @@
 #      comment on why.
 #   6. Creates (first run) or updates (subsequent runs) the
 #      "trinetra-webui" Express Gateway Service, passing ANTHROPIC_API_KEY
-#      from your local environment/.env into the container as a runtime
-#      environment variable - a separate step from the CodeBuild image
-#      build above.
+#      and (if set) THINGSBOARD_URL/USERNAME/PASSWORD/API_KEY and
+#      TRINETRA_WEBHOOK_SECRET from your local environment/.env into the
+#      container as runtime environment variables - a separate step from
+#      the CodeBuild image build above. Re-running this after editing .env
+#      updates the running service's environment too, not just the image.
 #   7. Writes a deployment manifest (default
 #      ~/.trinetra-ecs-express-deployment.json) recording the service ARN
 #      and CodeBuild project name, for teardown.sh and future re-runs.
@@ -130,6 +132,25 @@ fi
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     log_warn "ANTHROPIC_API_KEY is not set (checked environment and $REPO_DIR/.env)."
     log_warn "The deployed service will start but report 'No credentials found' at /api/status until you set it."
+fi
+
+# Same pattern as ANTHROPIC_API_KEY above, for the optional live-ThingsBoard
+# integration (Kshetra Netra's live signals, the alarm webhook, Anukaran
+# Netra's seeding) and the webhook's shared secret - see TRINETRA.md's
+# Kshetra Netra / Anukaran Netra sections. All optional: unset means those
+# features report "not configured" rather than failing, same as locally.
+for _var in THINGSBOARD_URL THINGSBOARD_USERNAME THINGSBOARD_PASSWORD THINGSBOARD_API_KEY TRINETRA_WEBHOOK_SECRET; do
+    if [[ -z "${!_var:-}" ]] && [[ -f "$REPO_DIR/.env" ]]; then
+        # shellcheck disable=SC1091
+        printf -v "$_var" '%s' "$(grep -E "^${_var}=" "$REPO_DIR/.env" | head -1 | cut -d= -f2-)"
+    fi
+done
+unset _var
+if [[ -z "${THINGSBOARD_USERNAME:-}${THINGSBOARD_API_KEY:-}" ]]; then
+    log_warn "No THINGSBOARD_USERNAME/PASSWORD or THINGSBOARD_API_KEY set - live ThingsBoard features will report 'not configured' on the deployed service, same as they do locally without credentials."
+fi
+if [[ -z "${TRINETRA_WEBHOOK_SECRET:-}" ]]; then
+    log_warn "TRINETRA_WEBHOOK_SECRET is not set - /api/webhooks/thingsboard-alarm will reject every request (503) on the deployed service until it is."
 fi
 
 # --- IAM roles --------------------------------------------------------
@@ -242,7 +263,14 @@ fi
 
 # --- ECS Express Gateway Service: create or update -------------------------
 
-PRIMARY_CONTAINER=$(ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" ECR_URI="$ECR_URI" python3 -c "
+PRIMARY_CONTAINER=$(
+    ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}" \
+    THINGSBOARD_URL="${THINGSBOARD_URL:-}" \
+    THINGSBOARD_USERNAME="${THINGSBOARD_USERNAME:-}" \
+    THINGSBOARD_PASSWORD="${THINGSBOARD_PASSWORD:-}" \
+    THINGSBOARD_API_KEY="${THINGSBOARD_API_KEY:-}" \
+    TRINETRA_WEBHOOK_SECRET="${TRINETRA_WEBHOOK_SECRET:-}" \
+    ECR_URI="$ECR_URI" python3 -c "
 import json, os
 
 env = []
@@ -254,6 +282,15 @@ if key:
     # pin with no key makes get_model() raise on startup.
     env.append({'name': 'TRINETRA_MODEL_PROVIDER', 'value': 'anthropic'})
     env.append({'name': 'ANTHROPIC_API_KEY', 'value': key})
+
+# Optional live-ThingsBoard integration - each one only added if actually
+# set, so an unconfigured deploy behaves exactly like an unconfigured local
+# run (an honest 'not configured', never a startup failure).
+for name in ('THINGSBOARD_URL', 'THINGSBOARD_USERNAME', 'THINGSBOARD_PASSWORD',
+             'THINGSBOARD_API_KEY', 'TRINETRA_WEBHOOK_SECRET'):
+    value = os.environ.get(name, '')
+    if value:
+        env.append({'name': name, 'value': value})
 
 print(json.dumps({
     'image': os.environ['ECR_URI'] + ':latest',
