@@ -17,9 +17,8 @@
 <break time="400ms"/>
 
 <p>
-  <s>Different cities, different years, the <emphasis level="moderate">same
-  failure</emphasis>: a narrow point, under crowd pressure, at the single
-  most crowded moment.</s>
+  <s>Different cities, different years, the same failure: a narrow point,
+  under crowd pressure, at the single most crowded moment.</s>
 </p>
 
 <break time="600ms"/>
@@ -37,8 +36,8 @@
 <p>
   <s>Yatri Netra guides pilgrims in nine languages. Prashasan Netra advises
   control-room operators. And Bhavishya Netra — a crowd digital twin — lets
-  planners stress-test crowd-control strategies <emphasis>months before</emphasis>
-  the event, not just watch it happen live.</s>
+  planners stress-test crowd-control strategies months before the event,
+  not just watch it happen live.</s>
 </p>
 
 <break time="600ms"/>
@@ -50,10 +49,10 @@
 <!-- ================================================================ -->
 <p>
   <s>Crowd occupancy is computed tick by tick by deterministic code, using
-  each ghat's real documented capacity — <emphasis level="moderate">never
-  guessed by a model</emphasis>. A language model only interprets the
-  finished numbers into a recommendation. That split is what makes the next
-  part actually mean something.</s>
+  each ghat's real documented capacity — never guessed by a model. A
+  language model only interprets the finished numbers into a
+  recommendation. That split is what makes the next part actually mean
+  something.</s>
 </p>
 
 <break time="600ms"/>
@@ -64,17 +63,15 @@
 <!-- Target run time: ~90s — the core of the video -->
 <!-- ================================================================ -->
 <p>
-  <s>Run <prosody rate="95%">trinetra calibrate</prosody>, and the simulator
-  replays the actual conditions of both 2003 and 2025 — and correctly flags
-  both <emphasis level="strong">critical</emphasis>.</s>
+  <s>Run "trinetra calibrate", and the simulator replays the actual
+  conditions of both 2003 and 2025 — and correctly flags both critical.</s>
 </p>
 <p>
   <s>But the harder test is the controls: an ordinary morning, and a
   managed, staggered snan, both correctly read as routine. Then the sharpest
-  pair — the <emphasis>same</emphasis> crowd and surge, except one narrow
-  lane is removed from the route. The result flips from critical back to
-  routine — the only proof here that the simulator responds to an
-  <emphasis level="moderate">intervention</emphasis>, not just a
+  pair — the same crowd and surge, except one narrow lane is removed from
+  the route. The result flips from critical back to routine — the only
+  proof here that the simulator responds to an intervention, not just a
   headcount.</s>
 </p>
 
@@ -86,10 +83,9 @@
   multi-step agent — it decides for itself what to check. Wired to a real
   ThingsBoard digital twin, it pulled a live reading off the actual Ramkund
   asset: nine thousand people, a calm-looking twenty-four percent occupancy,
-  but a Fruin pedestrian level-of-service grade of <emphasis
-  level="moderate">E</emphasis> — the second-worst on the scale. Same
-  reading, two different stories, and Trinetra reports both instead of
-  quietly picking one.</s>
+  but a Fruin pedestrian level-of-service grade of E — the second-worst on
+  the scale. Same reading, two different stories, and Trinetra reports both
+  instead of quietly picking one.</s>
 </p>
 
 <break time="500ms"/>
@@ -99,9 +95,9 @@
   <s>And because a dam's discharge and a ghat's crowd density sit in two
   separate departments, nobody was multiplying them together. Trinetra
   does: at twenty-two thousand cusecs, an able-bodied evacuation plan clears
-  Ramkund with <emphasis>zero minutes to spare</emphasis>. The realistic
-  mix — nearly half elderly or mobility-limited — misses by twenty minutes.
-  Same river, same crowd, opposite verdict.</s>
+  Ramkund with zero minutes to spare. The realistic mix — nearly half
+  elderly or mobility-limited — misses by twenty minutes. Same river, same
+  crowd, opposite verdict.</s>
 </p>
 
 <break time="500ms"/>
@@ -123,7 +119,7 @@
 <!-- ================================================================ -->
 <p>
   <s>Every recommendation here is advice. A human operator always makes the
-  call — <emphasis level="moderate">every time</emphasis>.</s>
+  call — every time.</s>
 </p>
 <p>
   <s>Trinetra — built with the Strands Agents SDK, open-sourced as a

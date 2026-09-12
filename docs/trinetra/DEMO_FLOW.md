@@ -7,7 +7,7 @@ the audio" below) and then screen-record against it, or record screen
 first and time-stretch narration to match.
 
 **Target length: ~3:05–3:15** at a natural narration pace (measured from
-the actual SSML word count + break tags — 467 words, 4.4s of `<break>`
+the actual SSML word count + break tags — 460 words, 4.4s of `<break>`
 time, using the same ~2.5 words/sec speaking rate measured off the
 BidWright/ClaimClarity/GlacierWatch scripts, not a guess). This is
 deliberately the tightest of the four project videos: Trinetra has nine
@@ -17,6 +17,16 @@ resource reconciliation and red-team check, A2A, Anukaran Netra's synthetic
 telemetry, and the SMS/USSD network-resilience design — is real, tested,
 and documented in `TRINETRA.md`, but is named for one sentence in section 4
 and left for "If you have more time" below rather than cut for space.
+
+**Why the SSML has no `<emphasis>` or `<prosody>` tags.** An earlier draft
+used both for rhetorical emphasis, matching the other three projects'
+scripts — but Amazon Polly's Neural engine (the one both `--voice-id
+Matthew` and `--voice-id Joanna` use here) doesn't support `<emphasis>` at
+all, and rejects it outright with "The input text contains invalid SSML
+syntax," not a silent ignore. This script only uses tags Neural actually
+supports (`<speak>`, `<p>`, `<s>`, `<break>`), and leans on word choice and
+`<break>` placement for emphasis instead. If you hit the same error on the
+other three projects' scripts, this is almost certainly why.
 
 Unlike the other three projects, Trinetra has no `JUDGING_CRITERIA.md` and
 no bundled `screenshots/` folder yet — this flow assumes you're recording
