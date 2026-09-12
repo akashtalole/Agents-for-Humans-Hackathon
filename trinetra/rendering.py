@@ -18,6 +18,7 @@ from trinetra.models import (
     IncidentCommandPlan,
     MonitoringBrief,
     PeerConsultation,
+    SeedingRunSummary,
     PlanCritique,
     NTKMAAdvisory,
     PilgrimGuidance,
@@ -468,4 +469,49 @@ def render_monitoring_brief_md(brief: MonitoringBrief) -> str:
         lines.append("")
 
     lines += ["## Recommended action", "", brief.recommended_action, ""]
+    return "\n".join(lines)
+
+
+def render_seeding_run_summary_md(summary: SeedingRunSummary) -> str:
+    """Anukaran Netra's run report. Labeled prominently as generated data,
+    not a live sensor feed - see this function's own banner line - because
+    every other renderer in this file describes something Trinetra
+    measured or computed about the real world, and this is the one
+    exception that writes fabricated-but-documented numbers elsewhere."""
+    d = summary.directive
+    lines = [
+        "# Anukaran Netra — Synthetic Telemetry Run",
+        "",
+        "**This run pushed GENERATED, NOT MEASURED, telemetry onto ThingsBoard.** "
+        "Every value came from documented, seeded, reproducible code (trinetra/tools/thingsboard_seed.py) - "
+        "never a live sensor. Do not mistake a chart populated by this run for a live feed.",
+        "",
+        f"**Scenario:** {d.narrative}",
+        "",
+        f"- Baseline multiplier: {d.baseline_multiplier}",
+        f"- Surge ghats: {', '.join(d.surge_asset_names) if d.surge_asset_names else '_none_'}"
+        + (f" (×{d.surge_multiplier})" if d.surge_asset_names else ""),
+        f"- Flood intensity: {d.flood_intensity}",
+        f"- Cycle length: {d.cycle_minutes} minutes",
+        "",
+        f"**{summary.ticks_pushed} telemetry point(s) pushed** across "
+        f"{len(summary.assets_touched)} ghat(s){f', {len(summary.river_gauges_touched)} with a river gauge' if summary.river_gauges_touched else ''}, "
+        f"in {(summary.finished_at - summary.started_at).total_seconds():.1f}s.",
+        "",
+    ]
+    if summary.assets_touched:
+        lines += ["## Ghats touched", "", *(f"- {a}" for a in summary.assets_touched), ""]
+    if summary.skipped_assets:
+        lines += ["## Skipped", "", *(f"- {s}" for s in summary.skipped_assets), ""]
+    if summary.skipped_river_gauges:
+        lines += [
+            "## River gauges NOT seeded", "",
+            "These have a provisioned device but no warningLevelM/dangerLevelM attributes set on this "
+            "tenant, so no level was pushed - see SeedingRunSummary.skipped_river_gauges's docstring for why "
+            "this is a real ThingsBoard provisioning gap, not a bug.",
+            "",
+            *(f"- {s}" for s in summary.skipped_river_gauges), "",
+        ]
+    if summary.errors:
+        lines += ["## Errors", "", *(f"- {e}" for e in summary.errors), ""]
     return "\n".join(lines)

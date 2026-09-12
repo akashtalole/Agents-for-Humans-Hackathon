@@ -22,6 +22,7 @@ from trinetra.models import (
     MobilityProfile,
     SimulationScenario,
 )
+from trinetra.agents.scenario_director import decide_scenario
 from trinetra.orchestrator import (
     command_incident,
     TrinetraSession,
@@ -43,8 +44,10 @@ from trinetra.rendering import (
     render_pilgrim_guidance_md,
     render_rumor_assessment_md,
     render_safety_triage_md,
+    render_seeding_run_summary_md,
     render_simulation_report_md,
 )
+from trinetra.tools.thingsboard_seed import run_seeding_cycle
 
 
 def _parse_occupancy(pairs: list[str]) -> dict[str, int] | None:
@@ -109,6 +112,17 @@ def main(argv: list[str] | None = None) -> int:
     monitor_parser.add_argument("--ghat", required=True, help="Ghat id, e.g. ramkund")
     monitor_parser.add_argument("--question", default=None, help="Optional free-text focus for the agent")
     monitor_parser.add_argument("--out", default="output")
+
+    seed_parser = subparsers.add_parser(
+        "seed-thingsboard",
+        help="Anukaran Netra: push reproducible, documented synthetic telemetry onto KumbhDigiTwin's real "
+        "ThingsBoard ghat entities (all 7, not just the ones Trinetra's own sites.json knows about). Requires "
+        "ANTHROPIC_API_KEY/Bedrock creds AND THINGSBOARD_USERNAME/PASSWORD or THINGSBOARD_API_KEY - this is the "
+        "one Trinetra command that writes to an external system rather than only reading or computing.",
+    )
+    seed_parser.add_argument("--request", required=True, help='Free-text scenario, e.g. "buildup to an Amrit Snan peak"')
+    seed_parser.add_argument("--tick-minutes", type=int, default=5, help="Simulated minutes between pushed points")
+    seed_parser.add_argument("--out", default="output")
 
     flood_parser = subparsers.add_parser(
         "flood-risk",
@@ -233,6 +247,14 @@ def main(argv: list[str] | None = None) -> int:
         print(md)
         _write(args.out, "monitoring_brief.md", md)
         return 0
+
+    if args.command == "seed-thingsboard":
+        directive = decide_scenario(args.request)
+        summary = run_seeding_cycle(directive, tick_minutes=args.tick_minutes)
+        md = render_seeding_run_summary_md(summary)
+        print(md)
+        _write(args.out, "seeding_run.md", md)
+        return 0 if not summary.errors else 1
 
     if args.command == "flood-risk":
         occupancy = _parse_occupancy(args.occupancy)

@@ -166,7 +166,7 @@ window ends.
 
 ### How we built it
 
-**Strands Agents SDK** throughout: nine agents, wired with the "agents as
+**Strands Agents SDK** throughout: ten agents, wired with the "agents as
 tools" pattern behind one router, every hand-off a **validated Pydantic
 structured output** rather than free text a model might restate wrong.
 
@@ -265,7 +265,7 @@ The finding we are most pleased with is the least flattering: the number we had
 been quoting most loudly, peak occupancy, is not monotonic once it saturates.
 The docs now say so.
 
-**194 offline tests, no API key required.** Every safety calculation is verified
+**207 offline tests, no API key required.** Every safety calculation is verified
 without spending a rupee.
 
 **And an honest limitations section we did not soften.** The site names,
@@ -405,7 +405,7 @@ confirm the UI is wired correctly.
 
 **Yes.** State it as:
 
-> Trinetra is built on the **Strands Agents SDK**. All nine agents
+> Trinetra is built on the **Strands Agents SDK**. All ten agents
 > (`trinetra/agents/`) are Strands `Agent` instances, composed with the
 > **"agents as tools"** pattern behind one router (`trinetra/orchestrator.py`,
 > seven registered `@tool` functions). Every agent returns a **Pydantic
@@ -458,10 +458,10 @@ Verified against the code at submission time, not recalled:
 
 | Claim | Verified |
 |---|---|
-| 9 Strands agents | `trinetra/agents/` → 9 modules besides `__init__.py` |
+| 10 Strands agents | `trinetra/agents/` → 10 modules besides `__init__.py` |
 | 11 deterministic tool modules | `trinetra/tools/` → 13 files, 11 domain modules besides `__init__.py` and the `_http.py` helper |
-| 194 offline Trinetra tests | `pytest -k trinetra --collect-only` → 194 |
-| 558 tests repo-wide, 555 pass / 3 opt-in | `pytest` |
+| 207 offline Trinetra tests | `pytest -k trinetra --collect-only` → 207 |
+| 571 tests repo-wide, 568 pass / 3 opt-in | `pytest` |
 | 9 Indian languages | `IndianLanguage` enum → 9 |
 | 9 dashboard views | `Sidebar.tsx` → 9 nav entries |
 | 5 A2A skills | `a2a/server.py` → 5 `AgentSkill(...)` |

@@ -17,7 +17,7 @@ In 2003, a barricade gave way beside Kalaram Mandir in Nashik. **39 people died*
 
 In 2027, tens of millions will walk those same lanes for the Simhastha Kumbh Mela. I built **Trinetra** on the **Strands Agents SDK** to ask whether agents could help an authority *rehearse* that failure first.
 
-**Why multi-agent, not a chatbot.** A pilgrim needs a route in Bhojpuri. An operator needs to know whether to close a gate in four minutes. A planner needs to stress-test that plan months earlier. Three jobs, not three prompts. Trinetra composes nine Strands agents with the SDK's **"agents as tools"** pattern — a router whose only job is picking the specialist, never answering itself.
+**Why multi-agent, not a chatbot.** A pilgrim needs a route in Bhojpuri. An operator needs to know whether to close a gate in four minutes. A planner needs to stress-test that plan months earlier. Three jobs, not three prompts. Trinetra composes ten Strands agents with the SDK's **"agents as tools"** pattern — a router whose only job is picking the specialist, never answering itself.
 
 **Code computes, models interpret.** Every number a safety decision rests on is plain Python: crowd simulation, evacuation feasibility, responder allocation, conflict detection. No model in that path. Agents sit on top supplying judgment, returning validated Pydantic objects rather than prose:
 

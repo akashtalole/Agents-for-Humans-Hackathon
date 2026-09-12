@@ -228,3 +228,27 @@ def post_server_attributes(
         f"/api/plugins/telemetry/{entity_type}/{entity_id}/attributes/SERVER_SCOPE",
         attributes,
     )
+
+
+def post_timeseries(
+    config: ThingsBoardConfig, token: str | None, entity_type: str, entity_id: str,
+    values: dict, ts_millis: int | None = None,
+) -> None:
+    """Writes time-series telemetry onto an entity - this is what feeds
+    KumbhDigiTwin's own already-provisioned calculated fields (e.g. "Ghat
+    density" reads paxCount off the asset and derives
+    densityPaxPerSqm/occupancyPct/losGrade automatically) and alarm rules.
+    See tools/thingsboard_seed.py for the caller, which computes every
+    value pushed here as reproducible, documented deterministic code - this
+    function is a dumb pipe, it does not decide what a plausible number is.
+
+    The path segment after /timeseries/ ("ANY" below) is the telemetry
+    scope ThingsBoard's own reference docs describe as vestigial - kept for
+    backward compatibility, not consulted by the server - so it is a fixed
+    constant here rather than a parameter nobody should be asked to choose.
+    ts_millis lets a caller backfill a specific point in time; omitted, the
+    server timestamps it as now."""
+    body: dict = dict(values)
+    if ts_millis is not None:
+        body = {"ts": ts_millis, "values": values}
+    _post(config, token, f"/api/plugins/telemetry/{entity_type}/{entity_id}/timeseries/ANY", body)

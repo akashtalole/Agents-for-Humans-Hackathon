@@ -889,3 +889,75 @@ class PeerConsultation(BaseModel):
     question: str
     responses: list[PeerResponse] = Field(default_factory=list)
     summary: str = ""
+
+
+# --------------------------------------------------------------------------
+# Anukaran Netra (अनुकरण नेत्र, "simulation eye"): pushes reproducible,
+# documented synthetic telemetry onto KumbhDigiTwin's real ThingsBoard
+# entities - see agents/scenario_director.py and
+# tools/thingsboard_seed.py.
+#
+# This is the one place in Trinetra that WRITES fabricated-looking numbers
+# anywhere, so the discipline is inverted deliberately and explicitly: the
+# LLM here never picks a number that gets pushed. It picks a *qualitative*
+# scenario (ScenarioDirective) once; every value actually written to
+# ThingsBoard is computed afterward by pure, seeded, documented code (see
+# thingsboard_seed.py's tick math) so a run is reproducible given the same
+# directive and seed, and so nobody can mistake a generated demo reading
+# for a live sensor's - see the pushed telemetry's own honest labeling in
+# TRINETRA.md's Anukaran Netra section.
+# --------------------------------------------------------------------------
+
+
+class ScenarioDirective(BaseModel):
+    """The model's only decision: what STORY this seeding run tells, in
+    bounded structured parameters - never a specific pushed value."""
+
+    narrative: str = Field(description="One or two sentences, for a human operator watching the run.")
+    baseline_multiplier: float = Field(
+        ge=0.2, le=3.0,
+        description="Overall crowd-level multiplier applied to every seeded ghat's safe_capacity-scaled curve. "
+        "1.0 is an ordinary day; values above ~2.0 model conditions approaching or exceeding safe capacity.",
+    )
+    surge_asset_names: list[str] = Field(
+        default_factory=list,
+        description="Which of the known ThingsBoard ghat names get an EXTRA localized surge on top of the "
+        "baseline this cycle. Must be drawn only from the known-ghats list given in the prompt - never invented.",
+    )
+    surge_multiplier: float = Field(
+        default=1.0, ge=1.0, le=2.5,
+        description="Extra multiplier applied only to surge_asset_names, on top of baseline_multiplier.",
+    )
+    flood_intensity: float = Field(
+        default=0.0, ge=0.0, le=1.5,
+        description="0 = calm river at every gauge-equipped ghat. 1.0 = river level approaches each gauge's own "
+        "dangerLevelM threshold. Above 1.0 models a level exceeding that threshold.",
+    )
+    cycle_minutes: int = Field(
+        ge=15, le=360,
+        description="How many simulated minutes this directive's curve spans, peak at the midpoint.",
+    )
+
+
+class SeedingRunSummary(BaseModel):
+    """What one Anukaran Netra invocation actually did - deliberately
+    detailed, since this is the one place in Trinetra where "did it work"
+    means "did real numbers land on a real system", not just "did the
+    model answer"."""
+
+    started_at: datetime
+    finished_at: datetime
+    directive: ScenarioDirective
+    ticks_pushed: int
+    assets_touched: list[str]
+    river_gauges_touched: list[str]
+    skipped_assets: list[str] = Field(
+        default_factory=list, description="Known ghats that exist but were not touched this run, and why."
+    )
+    skipped_river_gauges: list[str] = Field(
+        default_factory=list,
+        description="Ghats with a provisioned WaterLevelGauge device that was NOT seeded this run because its "
+        "warningLevelM/dangerLevelM attributes aren't set - a real ThingsBoard provisioning gap, not a bug: this "
+        "module refuses to invent a threshold rather than push a level with no basis for what it means.",
+    )
+    errors: list[str] = Field(default_factory=list)
