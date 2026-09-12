@@ -1,130 +1,49 @@
 <speak>
-
-<!-- ================================================================ -->
-<!-- SECTION 1: HOOK + PROBLEM                                        -->
-<!-- SCREEN: Open on real barricade/crowd imagery or a dark title card, then the Trinetra title -->
-<!-- Target run time for this section: ~25s -->
-<!-- ================================================================ -->
 <p>
-  <s>Two disasters, twenty-two years apart, same root cause.</s>
-  <s>August 2003, Nashik: a barricade near Kalaram Mandir collapses under
-  crowd pressure. Thirty-nine dead.</s>
-  <s>January 2025, Prayagraj: barricades break at the Sangam Nose during the
-  pre-dawn rush. Thirty confirmed — a BBC investigation found at least
-  eighty-two.</s>
+<s>Two disasters, twenty-two years apart, same root cause.</s>
+<s>August 2003, Nashik: a barricade near Kalaram Mandir collapses under crowd pressure. Thirty-nine dead.</s>
+<s>January 2025, Prayagraj: barricades break at the Sangam Nose during the pre-dawn rush. Thirty confirmed, and a BBC investigation found at least eighty-two.</s>
 </p>
-
 <break time="400ms"/>
-
 <p>
-  <s>Different cities, different years, the same failure: a narrow point,
-  under crowd pressure, at the single most crowded moment.</s>
+<s>Different cities, different years, the same failure: a narrow point, under crowd pressure, at the single most crowded moment.</s>
 </p>
-
 <break time="600ms"/>
-
-<!-- ================================================================ -->
-<!-- SECTION 2: WHO IT'S FOR                                          -->
-<!-- SCREEN: Trinetra title card / OverviewView showing the three-eyes layout -->
-<!-- Target run time: ~20s -->
-<!-- ================================================================ -->
 <p>
-  <s>This is Trinetra — three eyes, one platform, built with the Strands
-  Agents SDK for the Nashik-Trimbakeshwar Kumbh Mela 2027, expecting tens of
-  millions of pilgrims.</s>
+<s>This is Trinetra, three eyes, one platform, built with the Strands Agents SDK for the Nashik-Trimbakeshwar Kumbh Mela 2027, expecting tens of millions of pilgrims.</s>
 </p>
 <p>
-  <s>Yatri Netra guides pilgrims in nine languages. Prashasan Netra advises
-  control-room operators. And Bhavishya Netra — a crowd digital twin — lets
-  planners stress-test crowd-control strategies months before the event,
-  not just watch it happen live.</s>
+<s>Yatri Netra guides pilgrims in nine languages. Prashasan Netra advises control-room operators. And Bhavishya Netra, a crowd digital twin, lets planners stress-test crowd-control strategies months before the event, not just watch it happen live.</s>
 </p>
-
 <break time="600ms"/>
-
-<!-- ================================================================ -->
-<!-- SECTION 3: THE HYBRID DESIGN                                     -->
-<!-- SCREEN: DigitalTwinView, quiet occupancy chart -->
-<!-- Target run time: ~15s -->
-<!-- ================================================================ -->
 <p>
-  <s>Crowd occupancy is computed tick by tick by deterministic code, using
-  each ghat's real documented capacity — never guessed by a model. A
-  language model only interprets the finished numbers into a
-  recommendation. That split is what makes the next part actually mean
-  something.</s>
+<s>Crowd occupancy is computed tick by tick by deterministic code, using each ghat's real documented capacity, never guessed by a model. A language model only interprets the finished numbers into a recommendation. That split is what makes the next part actually mean something.</s>
 </p>
-
 <break time="600ms"/>
-
-<!-- ================================================================ -->
-<!-- SECTION 4: LIVE DEMO WALKTHROUGH                                 -->
-<!-- SCREEN: Terminal running `trinetra calibrate`, then CalibrationView -->
-<!-- Target run time: ~90s — the core of the video -->
-<!-- ================================================================ -->
 <p>
-  <s>Run "trinetra calibrate", and the simulator replays the actual
-  conditions of both 2003 and 2025 — and correctly flags both critical.</s>
+<s>Run the trinetra calibrate command, and the simulator replays the actual conditions of both 2003 and 2025, and correctly flags both critical.</s>
 </p>
 <p>
-  <s>But the harder test is the controls: an ordinary morning, and a
-  managed, staggered snan, both correctly read as routine. Then the sharpest
-  pair — the same crowd and surge, except one narrow lane is removed from
-  the route. The result flips from critical back to routine — the only
-  proof here that the simulator responds to an intervention, not just a
-  headcount.</s>
+<s>But the harder test is the controls: an ordinary morning, and a managed, staggered snan, both correctly read as routine. Then the sharpest pair: the same crowd and surge, except one narrow lane is removed from the route. The result flips from critical back to routine, the only proof here that the simulator responds to an intervention, not just a headcount.</s>
 </p>
-
 <break time="500ms"/>
-
-<!-- SCREEN: Terminal running "trinetra monitor" against ramkund, live ThingsBoard reading -->
 <p>
-  <s>For live monitoring, Kshetra Netra is Trinetra's one genuinely
-  multi-step agent — it decides for itself what to check. Wired to a real
-  ThingsBoard digital twin, it pulled a live reading off the actual Ramkund
-  asset: nine thousand people, a calm-looking twenty-four percent occupancy,
-  but a Fruin pedestrian level-of-service grade of E — the second-worst on
-  the scale. Same reading, two different stories, and Trinetra reports both
-  instead of quietly picking one.</s>
+<s>For live monitoring, Kshetra Netra is Trinetra's one genuinely multi-step agent, it decides for itself what to check. Wired to a real ThingsBoard digital twin, it pulled a live reading off the actual Ramkund asset: nine thousand people, a calm-looking twenty-four percent occupancy, but a Fruin pedestrian level-of-service grade of E, the second-worst on the scale. Same reading, two different stories, and Trinetra reports both instead of quietly picking one.</s>
 </p>
-
 <break time="500ms"/>
-
-<!-- SCREEN: FloodRiskView, worst-first evacuation table -->
 <p>
-  <s>And because a dam's discharge and a ghat's crowd density sit in two
-  separate departments, nobody was multiplying them together. Trinetra
-  does: at twenty-two thousand cusecs, an able-bodied evacuation plan clears
-  Ramkund with zero minutes to spare. The realistic mix — nearly half
-  elderly or mobility-limited — misses by twenty minutes. Same river, same
-  crowd, opposite verdict.</s>
+<s>And because a dam's discharge and a ghat's crowd density sit in two separate departments, nobody was multiplying them together. Trinetra does: at twenty-two thousand cusecs, an able-bodied evacuation plan clears Ramkund with zero minutes to spare. The realistic mix, nearly half elderly or mobility-limited, misses by twenty minutes. Same river, same crowd, opposite verdict.</s>
 </p>
-
 <break time="500ms"/>
-
-<!-- SCREEN: quick cuts across RumorView / CommandView -->
 <p>
-  <s>The same platform also triages SOS calls, screens crowd rumors for the
-  exact phrasing that could turn a crowd into a stampede, and reconciles
-  competing demands on one finite responder pool when three hazards hit at
-  once.</s>
+<s>The same platform also triages SOS calls, screens crowd rumors for the exact phrasing that could turn a crowd into a stampede, and reconciles competing demands on one finite responder pool when three hazards hit at once.</s>
 </p>
-
 <break time="700ms"/>
-
-<!-- ================================================================ -->
-<!-- SECTION 5: CLOSE                                                 -->
-<!-- SCREEN: Trinetra title card, then architecture diagram briefly -->
-<!-- Target run time: ~20s -->
-<!-- ================================================================ -->
 <p>
-  <s>Every recommendation here is advice. A human operator always makes the
-  call — every time.</s>
+<s>Every recommendation here is advice. A human operator always makes the call, every time.</s>
 </p>
 <p>
-  <s>Trinetra — built with the Strands Agents SDK, open-sourced as a
-  reference implementation, for the Agents for Humans Hackathon.</s>
-  <s>Read the crowd. Decide with confidence.</s>
+<s>Trinetra, built with the Strands Agents SDK, open-sourced as a reference implementation, for the Agents for Humans Hackathon.</s>
+<s>Read the crowd. Decide with confidence.</s>
 </p>
-
 </speak>
