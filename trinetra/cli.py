@@ -27,6 +27,7 @@ from trinetra.orchestrator import (
     TrinetraSession,
     ask_pilgrim,
     assess_flood_risk,
+    monitor_live,
     report_sos,
     run_calibration,
     run_simulation,
@@ -38,6 +39,7 @@ from trinetra.rendering import (
     render_peer_consultation_md,
     render_calibration_md,
     render_compound_risk_md,
+    render_monitoring_brief_md,
     render_pilgrim_guidance_md,
     render_rumor_assessment_md,
     render_safety_triage_md,
@@ -97,6 +99,16 @@ def main(argv: list[str] | None = None) -> int:
 
     calibrate_parser = subparsers.add_parser("calibrate", help="Validate the simulator against real historical Kumbh incidents")
     calibrate_parser.add_argument("--out", default="output")
+
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Kshetra Netra: live-monitor one ghat (live ThingsBoard telemetry + a lookahead simulation). "
+        "Requires ANTHROPIC_API_KEY/Bedrock creds (it is a tool-calling agent, unlike calibrate) and, for a "
+        "live signal rather than an honest 'unavailable', THINGSBOARD_USERNAME/PASSWORD or THINGSBOARD_API_KEY.",
+    )
+    monitor_parser.add_argument("--ghat", required=True, help="Ghat id, e.g. ramkund")
+    monitor_parser.add_argument("--question", default=None, help="Optional free-text focus for the agent")
+    monitor_parser.add_argument("--out", default="output")
 
     flood_parser = subparsers.add_parser(
         "flood-risk",
@@ -214,6 +226,13 @@ def main(argv: list[str] | None = None) -> int:
         print(md)
         _write(args.out, "calibration_report.md", md)
         return 0 if all(r.correctly_flagged for r in results) else 1
+
+    if args.command == "monitor":
+        brief = monitor_live(session, args.ghat, question=args.question)
+        md = render_monitoring_brief_md(brief)
+        print(md)
+        _write(args.out, "monitoring_brief.md", md)
+        return 0
 
     if args.command == "flood-risk":
         occupancy = _parse_occupancy(args.occupancy)

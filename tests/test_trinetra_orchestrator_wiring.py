@@ -23,6 +23,7 @@ from trinetra.orchestrator import (
     TrinetraSession,
     ask_pilgrim,
     get_command_brief,
+    monitor_live,
     report_sos,
     run_calibration,
     run_simulation,
@@ -123,3 +124,32 @@ def test_session_loads_real_bundled_geography_by_default():
     assert "ramkund" in session.ghats
     assert "kushavarta" in session.ghats
     assert len(session.routes) > 0
+
+
+def test_monitor_live_wiring(monkeypatch):
+    """monitor_live delegates to agents.live_monitor.monitor_ghat (mocked
+    here, since it's a real tool-calling agent and needs an API key to run
+    for real) and records the result on the session - same shape as every
+    other module-level orchestrator function."""
+    from datetime import datetime
+
+    from trinetra.models import MonitoringBrief, MonitoringFinding
+
+    def _fake_monitor_ghat(ghat_id, question=None):
+        assert ghat_id == "ramkund"
+        assert question == "check crowd"
+        return MonitoringBrief(
+            generated_at=datetime.utcnow(),
+            overall_status=RiskLevel.ELEVATED,
+            findings=[MonitoringFinding(signal_source="thingsboard:ramkund", observation="LOS grade E", severity=RiskLevel.ELEVATED)],
+            checked_signals=["get_live_ghat_crowd_signal(ramkund)"],
+            data_gaps=[],
+            recommended_action="Deploy additional personnel.",
+            summary="Elevated crowd density at Ramkund.",
+        )
+
+    monkeypatch.setattr(orchestrator_module, "monitor_ghat", _fake_monitor_ghat)
+    session = TrinetraSession()
+    brief = monitor_live(session, "ramkund", question="check crowd")
+    assert brief.overall_status == RiskLevel.ELEVATED
+    assert session.last_monitoring_brief is brief

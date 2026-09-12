@@ -166,7 +166,7 @@ window ends.
 
 ### How we built it
 
-**Strands Agents SDK** throughout: eight agents, wired with the "agents as
+**Strands Agents SDK** throughout: nine agents, wired with the "agents as
 tools" pattern behind one router, every hand-off a **validated Pydantic
 structured output** rather than free text a model might restate wrong.
 
@@ -265,7 +265,7 @@ The finding we are most pleased with is the least flattering: the number we had
 been quoting most loudly, peak occupancy, is not monotonic once it saturates.
 The docs now say so.
 
-**151 offline tests, no API key required.** Every safety calculation is verified
+**185 offline tests, no API key required.** Every safety calculation is verified
 without spending a rupee.
 
 **And an honest limitations section we did not soften.** The site names,
@@ -329,13 +329,19 @@ are *not* forced us to be precise about what they are.
 ```
 strands-agents, python, amazon-bedrock, amazon-bedrock-agentcore, aws,
 amazon-ecs, aws-codebuild, aws-fargate, aws-cloudshell, amazon-ecr,
-anthropic, claude, agent2agent, a2a, fastapi, pydantic, react, typescript,
-vite, tailwindcss, server-sent-events, uvicorn, mkdocs, open-meteo,
-docker, pytest
+anthropic, claude, agent2agent, a2a, thingsboard, iot, fastapi, pydantic,
+react, typescript, vite, tailwindcss, server-sent-events, uvicorn, mkdocs,
+open-meteo, docker, pytest
 ```
 
-**Strands Agents is the first tag** — it is the SDK every one of the eight
-agents is built on.
+**Strands Agents is the first tag** — it is the SDK every one of the nine
+agents is built on. **thingsboard/iot** reflect Kshetra Netra, the live-
+monitoring agent that pulls real crowd-density and river-gauge telemetry
+from [KumbhDigiTwin](https://github.com/akashtalole/KumbhDigiTwin), a
+companion ThingsBoard digital-twin project — see "What it does" above and
+TRINETRA.md's Kshetra Netra section for the honest scope of that
+integration (one ghat, cross-checked against Trinetra's own numbers rather
+than merged with them).
 
 ---
 
@@ -399,7 +405,7 @@ confirm the UI is wired correctly.
 
 **Yes.** State it as:
 
-> Trinetra is built on the **Strands Agents SDK**. All eight agents
+> Trinetra is built on the **Strands Agents SDK**. All nine agents
 > (`trinetra/agents/`) are Strands `Agent` instances, composed with the
 > **"agents as tools"** pattern behind one router (`trinetra/orchestrator.py`,
 > seven registered `@tool` functions). Every agent returns a **Pydantic
@@ -452,10 +458,10 @@ Verified against the code at submission time, not recalled:
 
 | Claim | Verified |
 |---|---|
-| 8 Strands agents | `trinetra/agents/` → 8 modules besides `__init__.py` |
+| 9 Strands agents | `trinetra/agents/` → 9 modules besides `__init__.py` |
 | 11 deterministic tool modules | `trinetra/tools/` → 13 files, 11 domain modules besides `__init__.py` and the `_http.py` helper |
-| 151 offline Trinetra tests | `pytest -k trinetra --collect-only` → 151 |
-| 515 tests repo-wide, 512 pass / 3 opt-in | `pytest` |
+| 185 offline Trinetra tests | `pytest -k trinetra --collect-only` → 185 |
+| 549 tests repo-wide, 546 pass / 3 opt-in | `pytest` |
 | 9 Indian languages | `IndianLanguage` enum → 9 |
 | 9 dashboard views | `Sidebar.tsx` → 9 nav entries |
 | 5 A2A skills | `a2a/server.py` → 5 `AgentSkill(...)` |

@@ -424,3 +424,42 @@ def test_a2a_consult_requires_a_question(client):
 def test_a2a_consult_rejects_an_unknown_capability(client):
     resp = client.post("/api/a2a/consult", json={"question": "q", "capability": "quantum astrology"})
     assert resp.status_code == 400
+
+
+def test_monitor_endpoint_requires_ghat_id(client):
+    resp = client.post("/api/monitor", json={})
+    assert resp.status_code == 400
+
+
+def test_monitor_endpoint_rejects_unknown_ghat(client):
+    resp = client.post("/api/monitor", json={"ghat_id": "not_a_real_ghat"})
+    assert resp.status_code == 404
+
+
+def test_monitor_endpoint_wiring(monkeypatch, client):
+    """monitor_ghat (the real tool-calling agent) is mocked here, same as
+    every other agent-calling endpoint in this file - it needs an API key
+    to run for real."""
+    from datetime import datetime
+
+    from trinetra.models import MonitoringBrief, MonitoringFinding
+
+    def _fake_monitor_ghat(ghat_id, question=None):
+        assert ghat_id == "ramkund"
+        assert question == "any flood risk?"
+        return MonitoringBrief(
+            generated_at=datetime.utcnow(),
+            overall_status=RiskLevel.ROUTINE,
+            findings=[MonitoringFinding(signal_source="thingsboard:ramkund", observation="LOS grade B", severity=RiskLevel.ROUTINE)],
+            checked_signals=["get_live_ghat_crowd_signal(ramkund)", "get_live_river_gauge(ramkund)"],
+            data_gaps=[],
+            recommended_action="No action needed.",
+            summary="Ramkund is calm.",
+        )
+
+    monkeypatch.setattr(api_module, "monitor_ghat", _fake_monitor_ghat)
+    resp = client.post("/api/monitor", json={"ghat_id": "ramkund", "question": "any flood risk?"})
+    assert resp.status_code == 200
+    body = resp.json()["brief"]
+    assert body["overall_status"] == "routine"
+    assert body["checked_signals"] == ["get_live_ghat_crowd_signal(ramkund)", "get_live_river_gauge(ramkund)"]

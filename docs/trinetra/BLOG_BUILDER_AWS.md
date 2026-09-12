@@ -6,7 +6,7 @@ Humans" stays in the title — that is the bonus-content rule. Suggested tags:
 `public-safety`.*
 
 *This is the **3000-character** version: the post is the title line plus
-everything below the rule, and measures **3018 characters**. The earlier
+everything below the rule, and measures **3017 characters**. The earlier
 long-form draft (~2260 words) is still in this file's git history if a
 longer format is wanted. Editorial notes above the rule are not part of the
 count.*
@@ -17,7 +17,7 @@ In 2003, a barricade gave way beside Kalaram Mandir in Nashik. **39 people died*
 
 In 2027, tens of millions will walk those same lanes for the Simhastha Kumbh Mela. I built **Trinetra** on the **Strands Agents SDK** to ask whether agents could help an authority *rehearse* that failure first.
 
-**Why multi-agent, not a chatbot.** A pilgrim needs a route in Bhojpuri. An operator needs to know whether to close a gate in four minutes. A planner needs to stress-test that plan months earlier. Three jobs, not three prompts. Trinetra composes eight Strands agents with the SDK's **"agents as tools"** pattern — a router whose only job is picking the specialist, never answering itself.
+**Why multi-agent, not a chatbot.** A pilgrim needs a route in Bhojpuri. An operator needs to know whether to close a gate in four minutes. A planner needs to stress-test that plan months earlier. Three jobs, not three prompts. Trinetra composes nine Strands agents with the SDK's **"agents as tools"** pattern — a router whose only job is picking the specialist, never answering itself.
 
 **Code computes, models interpret.** Every number a safety decision rests on is plain Python: crowd simulation, evacuation feasibility, responder allocation, conflict detection. No model in that path. Agents sit on top supplying judgment, returning validated Pydantic objects rather than prose:
 

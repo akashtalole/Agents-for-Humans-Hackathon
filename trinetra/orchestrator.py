@@ -27,6 +27,7 @@ from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
 from trinetra.agents.hydrology_advisor import advise_on_compound_risk
 from trinetra.agents.incident_commander import command_the_incident
+from trinetra.agents.live_monitor import monitor_ghat
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
 from trinetra.agents.red_team import critique_plan
 from trinetra.agents.rumor_analyst import assess_rumor
@@ -44,6 +45,7 @@ from trinetra.models import (
     IncidentCommandPlan,
     IndianLanguage,
     MobilityProfile,
+    MonitoringBrief,
     NetworkMode,
     NTKMAAdvisory,
     PilgrimGuidance,
@@ -99,6 +101,7 @@ class TrinetraSession:
     last_conflicts: ConflictScanResult | None = None
     last_command_plan: IncidentCommandPlan | None = None
     last_critique: PlanCritique | None = None
+    last_monitoring_brief: MonitoringBrief | None = None
 
     def __post_init__(self) -> None:
         if not self.ghats:
@@ -138,6 +141,17 @@ def run_simulation(session: TrinetraSession, scenario: SimulationScenario) -> tu
 
 def run_calibration(session: TrinetraSession) -> list[CalibrationResult]:
     return run_all_calibration_cases()
+
+
+def monitor_live(session: TrinetraSession, ghat_id: str, question: str | None = None) -> MonitoringBrief:
+    """Runs Kshetra Netra's live-monitoring pass for one ghat. Unlike every
+    other function in this module, this one agent decides for itself which
+    tools to call (live ThingsBoard signals, a lookahead simulation, a
+    calibration sanity check) rather than being handed pre-assembled data -
+    see agents/live_monitor.py's module docstring."""
+    brief = monitor_ghat(ghat_id, question=question)
+    session.last_monitoring_brief = brief
+    return brief
 
 
 def assess_flood_risk(
@@ -288,6 +302,11 @@ when the request is about priorities, competing demands, or who to send \
 where first. It is the only tool that reconciles the other desks against a \
 finite number of responder units; the single-hazard tools above each assume \
 they can have whatever they ask for.
+- live_monitor_tool: a request to check the CURRENT/live situation at a \
+specific ghat right now (e.g. "what's happening at Ramkund", "is it getting \
+crowded", "check live sensors") - as distinct from simulate_scenario, which \
+models a hypothetical scenario rather than checking live telemetry. This \
+tool has its own sub-agent that decides which live signals to check.
 
 After calling the right tool, give a brief final reply pointing to the \
 generated report/response - never restate its specifics from memory, since \
@@ -373,6 +392,13 @@ def build_orchestrator(session: TrinetraSession) -> Agent:
             parts.append(f"RED TEAM:\n{critique.model_dump_json(indent=2)}")
         return "\n\n".join(parts)
 
+    @tool
+    def live_monitor_tool(ghat_id: str, question: str | None = None) -> str:
+        """Run Kshetra Netra's live-monitoring pass for one ghat - checks live
+        ThingsBoard telemetry and Trinetra's own deterministic models, and
+        decides for itself what needs the operator's attention right now."""
+        return monitor_live(session, ghat_id, question=question).model_dump_json(indent=2)
+
     return create_agent(
         system_prompt=ROUTER_PROMPT,
         tools=[
@@ -383,5 +409,6 @@ def build_orchestrator(session: TrinetraSession) -> Agent:
             flood_risk_check,
             rumor_check,
             command_incident_tool,
+            live_monitor_tool,
         ],
     )

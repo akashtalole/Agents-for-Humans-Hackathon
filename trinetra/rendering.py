@@ -16,6 +16,7 @@ from trinetra.models import (
     ConflictScanResult,
     HydrologyAdvisory,
     IncidentCommandPlan,
+    MonitoringBrief,
     PeerConsultation,
     PlanCritique,
     NTKMAAdvisory,
@@ -430,4 +431,41 @@ def render_peer_consultation_md(consultation: PeerConsultation) -> str:
                     lines.append(f"  - triggered on: _{f.excerpt}_")
             lines.append("")
 
+    return "\n".join(lines)
+
+
+def render_monitoring_brief_md(brief: MonitoringBrief) -> str:
+    """Kshetra Netra's live-monitoring pass. checked_signals/data_gaps are
+    rendered as prominently as the findings themselves - a brief that
+    checked nothing live should not read the same as one that did."""
+    lines = [
+        "# Kshetra Netra — Live Monitoring Brief",
+        "",
+        DISCLAIMER,
+        "",
+        f"**Overall status: {brief.overall_status.value.upper()}**",
+        "",
+        brief.summary,
+        "",
+        "## Signals checked this pass",
+        "",
+    ]
+    if brief.checked_signals:
+        lines += [f"- {s}" for s in brief.checked_signals]
+    else:
+        lines.append("_None — this brief did not call any live/simulation tool. Treat it as unverified._")
+    lines.append("")
+
+    if brief.data_gaps:
+        lines += ["## Data gaps", ""]
+        lines += [f"- {g}" for g in brief.data_gaps]
+        lines.append("")
+
+    lines += ["## Findings", ""]
+    for finding in brief.findings:
+        lines.append(f"### {finding.severity.value.upper()} — {finding.signal_source}")
+        lines.append(finding.observation)
+        lines.append("")
+
+    lines += ["## Recommended action", "", brief.recommended_action, ""]
     return "\n".join(lines)

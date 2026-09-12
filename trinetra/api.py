@@ -36,6 +36,7 @@ from trinetra.agents.command_advisor import advise_on_crowd_signals
 from trinetra.agents.foresight_advisor import advise_on_simulation
 from trinetra.agents.hydrology_advisor import advise_on_compound_risk
 from trinetra.agents.incident_commander import command_the_incident
+from trinetra.agents.live_monitor import monitor_ghat
 from trinetra.agents.pilgrim_assistant import answer_pilgrim_query
 from trinetra.agents.red_team import critique_plan
 from trinetra.agents.rumor_analyst import assess_rumor
@@ -354,6 +355,27 @@ async def get_calibration() -> dict[str, Any]:
     loop = asyncio.get_event_loop()
     results = await loop.run_in_executor(_executor, run_all_calibration_cases)
     return {"results": [r.model_dump(mode="json") for r in results]}
+
+
+# --- Kshetra Netra: live monitoring (real tool-calling agent) --------------
+
+
+@app.post("/api/monitor")
+async def monitor(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Unlike every other endpoint above, this one calls an agent that
+    decides for itself which tools to run (live ThingsBoard telemetry, a
+    lookahead simulation, a calibration check) - see
+    agents/live_monitor.py's module docstring. It costs a model call and can
+    take noticeably longer than the deterministic endpoints above."""
+    ghat_id = (body.get("ghat_id") or "").strip()
+    if not ghat_id:
+        raise HTTPException(status_code=400, detail="ghat_id is required.")
+    if ghat_id not in _GHATS:
+        raise HTTPException(status_code=404, detail=f"Unknown ghat_id '{ghat_id}'.")
+    question = body.get("question")
+    loop = asyncio.get_event_loop()
+    brief = await loop.run_in_executor(_executor, lambda: monitor_ghat(ghat_id, question=question))
+    return {"brief": brief.model_dump(mode="json")}
 
 
 # --- Sankat Nirnay: multi-hazard incident command ----------------------------

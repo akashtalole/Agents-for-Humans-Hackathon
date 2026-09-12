@@ -179,6 +179,91 @@ class CrowdSignal(BaseModel):
     outflow_rate_per_min: int
 
 
+# --------------------------------------------------------------------------
+# Live ThingsBoard telemetry (github.com/akashtalole/KumbhDigiTwin).
+#
+# This is a second, independent source of ghat/river state - not a
+# replacement for CrowdSignal/RiverStage above, which stay as the
+# simulator-facing contract. The point of a second source is the same as
+# the twin's own stated design philosophy: "two models, neither
+# authoritative." Where they agree, that is corroboration. Where they
+# disagree, LiveSignalCrossCheck reports the disagreement rather than
+# picking a winner - see tools/live_signals.py.
+# --------------------------------------------------------------------------
+
+
+class GhatLiveReading(BaseModel):
+    """One ghat's live telemetry as reported by a ThingsBoard Ghat asset
+    (KumbhDigiTwin's asset-profiles/ghat.json + calculated-fields.json).
+
+    los_grade is the Fruin pedestrian Level-of-Service scale (A best, F
+    worst; grade boundaries are density in people/sqm: A<1, B<2, C<3, D<4,
+    E<5, F>=5) - a different, and more physically grounded, crush-risk
+    measure than Trinetra's own occupancy-percentage-of-safe-capacity. It is
+    reported alongside occupancy_pct rather than converted into it, because
+    the two can disagree (a ghat can be under its stated safe_capacity while
+    already at LOS F if that capacity figure is generous) and that
+    disagreement is itself useful information.
+    """
+
+    ghat_id: str
+    thingsboard_asset_name: str
+    fetched_at: datetime
+    pax_count: int | None
+    density_pax_per_sqm: float | None
+    occupancy_pct: float | None
+    los_grade: str | None
+    reported_safe_capacity: int | None
+    reported_area_sqm: float | None
+
+
+class RiverGaugeReading(BaseModel):
+    """Live water-level telemetry from a ThingsBoard WaterLevelGauge device
+    attached to a ghat asset (one gauge per ghat in KumbhDigiTwin, named
+    "{asset name} :: level"). This measures river STAGE at the ghat, not
+    Gangapur Dam discharge volume - it is a different point in the same
+    causal chain as DamRelease (a dam release raises stage at the ghats,
+    with a travel-time lag), not the same quantity in different units. See
+    tools/live_signals.py for how the two are cross-checked rather than
+    conflated.
+
+    derived_stage applies the RiverStage ordering to the live level/trend
+    reading using the gauge's own warning_level_m/danger_level_m attributes
+    - both explicitly labeled "UNCALIBRATED placeholder" in KumbhDigiTwin's
+    own provisioning data, the same honesty this repo applies to its own
+    numbers, so this is a structural cross-check (does the live reading
+    cross a threshold) rather than a claim that either threshold is the
+    real one.
+    """
+
+    ghat_id: str
+    thingsboard_device_name: str
+    fetched_at: datetime
+    level_m: float | None
+    trend_cm_per_hr: float | None
+    warning_level_m: float | None
+    danger_level_m: float | None
+    derived_stage: RiverStage | None
+
+
+class LiveSignalCrossCheck(BaseModel):
+    """Compares Trinetra's own bundled ghat data (sites.json) against a live
+    GhatLiveReading for the same ghat. Both figures are estimates from
+    independent sources - this never picks one as correct, it reports
+    whether they agree and by how much, so a human decides which (if
+    either) to trust."""
+
+    ghat_id: str
+    trinetra_safe_capacity: int
+    thingsboard_safe_capacity: int | None
+    capacity_ratio: float | None = Field(
+        description="thingsboard_safe_capacity / trinetra_safe_capacity, if both are known. "
+        "1.0 means they agree; far from 1.0 means the two sources disagree about how many "
+        "people this ghat can safely hold."
+    )
+    agrees_within_20pct: bool | None
+
+
 class InterventionAction(str, Enum):
     ROUTE_DIVERSION = "route_diversion"
     GATE_CLOSURE = "gate_closure"
@@ -207,6 +292,51 @@ class CommandBrief(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     overall_status: RiskLevel
     recommendations: list[InterventionRecommendation]
+    summary: str
+
+
+# --------------------------------------------------------------------------
+# Kshetra Netra: live monitoring agent (see agents/live_monitor.py)
+#
+# Unlike every other agent in this repo, this one is a genuine multi-step
+# tool user rather than a single structured-extraction call: it is handed
+# tools that hit live ThingsBoard telemetry and Trinetra's own deterministic
+# simulator/conflict/calibration code, and decides for itself which to call
+# before producing this brief. It still never executes anything - see
+# checked_signals/data_gaps below, which exist so a human reviewing the
+# brief can tell what it actually looked at versus what it is inferring.
+# --------------------------------------------------------------------------
+
+
+class MonitoringFinding(BaseModel):
+    """One thing Kshetra Netra checked and what it found. severity follows
+    the same RiskLevel ordering as everywhere else in this repo."""
+
+    signal_source: str = Field(description='e.g. "thingsboard:ramkund", "simulator", "conflict_scan"')
+    observation: str = Field(description="What the tool call actually returned - cite numbers, not vibes.")
+    severity: RiskLevel
+
+
+class MonitoringBrief(BaseModel):
+    """Kshetra Netra's output: a live-monitoring pass across whichever
+    signals it decided to check, given to a human operator to act on."""
+
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    overall_status: RiskLevel
+    findings: list[MonitoringFinding]
+    checked_signals: list[str] = Field(
+        description="Every tool call the agent actually made this pass - lets a human verify it did not "
+        "just answer from the prompt without checking anything live."
+    )
+    data_gaps: list[str] = Field(
+        default_factory=list,
+        description="Signals the agent wanted but could not get (e.g. a ghat with no ThingsBoard mapping, "
+        "a failed live fetch) - never silently treated as 'all clear'.",
+    )
+    recommended_action: str = Field(
+        description="A recommendation for a human operator. Never a claim that anything was or will be "
+        "auto-executed - see TRINETRA.md's human-authority framing, which applies to this agent too."
+    )
     summary: str
 
 
