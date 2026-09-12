@@ -9,6 +9,7 @@ advisor layer is mocked, matching the actual architecture.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,6 +20,7 @@ from trinetra.models import (
     IncidentType,
     InterventionAction,
     InterventionRecommendation,
+    MonitoringBrief,
     NTKMAAdvisory,
     PilgrimGuidance,
     RiskLevel,
@@ -463,3 +465,73 @@ def test_monitor_endpoint_wiring(monkeypatch, client):
     body = resp.json()["brief"]
     assert body["overall_status"] == "routine"
     assert body["checked_signals"] == ["get_live_ghat_crowd_signal(ramkund)", "get_live_river_gauge(ramkund)"]
+
+
+# --- ThingsBoard alarm webhook (inbound trigger) ----------------------------
+
+
+def test_webhook_fails_closed_when_secret_not_configured(monkeypatch, client):
+    monkeypatch.delenv("TRINETRA_WEBHOOK_SECRET", raising=False)
+    resp = client.post("/api/webhooks/thingsboard-alarm", json={"originator_name": "x"})
+    assert resp.status_code == 503
+
+
+def test_webhook_rejects_missing_or_wrong_secret(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post("/api/webhooks/thingsboard-alarm", json={"originator_name": "x"})
+    assert resp.status_code == 401
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm", json={"originator_name": "x"},
+        headers={"X-Webhook-Secret": "wrong-secret"},
+    )
+    assert resp.status_code == 401
+
+
+def test_webhook_ignores_unmapped_entity_without_error(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm",
+        json={"originator_name": "Some Sanitation Block"},
+        headers={"X-Webhook-Secret": "correct-secret"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["accepted"] is False
+
+
+def test_webhook_accepts_mapped_entity_and_dispatches_in_background(monkeypatch, client):
+    """monitor_ghat (a real, costly agent call) is mocked - only the
+    dispatch wiring is under test here, same discipline as every other
+    agent-calling endpoint."""
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    calls = []
+
+    def fake_monitor_ghat(ghat_id, question=None):
+        calls.append((ghat_id, question))
+        return MonitoringBrief(
+            generated_at=datetime.utcnow(), overall_status=RiskLevel.ROUTINE, findings=[],
+            checked_signals=[], data_gaps=[], recommended_action="none", summary="ok",
+        )
+
+    monkeypatch.setattr(api_module, "monitor_ghat", fake_monitor_ghat)
+    monkeypatch.setattr(api_module, "write_back_monitoring_result", lambda *a, **k: None)
+
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm",
+        json={"originator_name": "Ramkund and near by Ghats", "alarm_type": "CrowdDensityCritical", "severity": "MAJOR"},
+        headers={"X-Webhook-Secret": "correct-secret"},
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["accepted"] is True
+    assert body["ghat_id"] == "ramkund"
+    # TestClient runs FastAPI BackgroundTasks synchronously before returning.
+    assert calls == [("ramkund", calls[0][1])]
+    assert "CrowdDensityCritical" in calls[0][1]
+
+
+def test_webhook_requires_originator_name(monkeypatch, client):
+    monkeypatch.setenv("TRINETRA_WEBHOOK_SECRET", "correct-secret")
+    resp = client.post(
+        "/api/webhooks/thingsboard-alarm", json={}, headers={"X-Webhook-Secret": "correct-secret"}
+    )
+    assert resp.status_code == 400

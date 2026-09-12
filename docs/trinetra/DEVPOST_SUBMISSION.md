@@ -265,7 +265,7 @@ The finding we are most pleased with is the least flattering: the number we had
 been quoting most loudly, peak occupancy, is not monotonic once it saturates.
 The docs now say so.
 
-**185 offline tests, no API key required.** Every safety calculation is verified
+**194 offline tests, no API key required.** Every safety calculation is verified
 without spending a rupee.
 
 **And an honest limitations section we did not soften.** The site names,
@@ -460,8 +460,8 @@ Verified against the code at submission time, not recalled:
 |---|---|
 | 9 Strands agents | `trinetra/agents/` → 9 modules besides `__init__.py` |
 | 11 deterministic tool modules | `trinetra/tools/` → 13 files, 11 domain modules besides `__init__.py` and the `_http.py` helper |
-| 185 offline Trinetra tests | `pytest -k trinetra --collect-only` → 185 |
-| 549 tests repo-wide, 546 pass / 3 opt-in | `pytest` |
+| 194 offline Trinetra tests | `pytest -k trinetra --collect-only` → 194 |
+| 558 tests repo-wide, 555 pass / 3 opt-in | `pytest` |
 | 9 Indian languages | `IndianLanguage` enum → 9 |
 | 9 dashboard views | `Sidebar.tsx` → 9 nav entries |
 | 5 A2A skills | `a2a/server.py` → 5 `AgentSkill(...)` |

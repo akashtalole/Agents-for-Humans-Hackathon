@@ -23,6 +23,7 @@ from trinetra.models import (
     Ghat,
     GhatLiveReading,
     LiveSignalCrossCheck,
+    MonitoringBrief,
     RiverGaugeReading,
     RiverStage,
 )
@@ -34,6 +35,7 @@ from trinetra.tools.thingsboard import (
     get_server_attributes,
     load_config_from_env,
     login,
+    post_server_attributes,
 )
 
 # Verified against github.com/akashtalole/KumbhDigiTwin's
@@ -225,3 +227,63 @@ def los_grade_to_risk_label(los_grade: str | None) -> str | None:
     if los_grade is None:
         return None
     return _LOS_RISK_BY_GRADE.get(los_grade.strip().upper())
+
+
+# --------------------------------------------------------------------------
+# Inbound: ThingsBoard alarm -> Trinetra ghat_id, and writing a result back.
+#
+# Everything above this point is Trinetra PULLING a reading on demand (a
+# tool call, a CLI run). This direction is ThingsBoard PUSHING when one of
+# its own alarm rules fires - see api.py's /api/webhooks/thingsboard-alarm
+# and TRINETRA.md's Kshetra Netra section for the rule-chain configuration
+# this expects on the ThingsBoard side.
+# --------------------------------------------------------------------------
+
+_THINGSBOARD_ASSET_TO_GHAT_ID: dict[str, str] = {v: k for k, v in GHAT_ID_TO_THINGSBOARD_ASSET.items()}
+
+
+def ghat_id_from_thingsboard_asset_name(asset_name: str) -> str | None:
+    """The reverse of GHAT_ID_TO_THINGSBOARD_ASSET. Returns None for an
+    entity name Trinetra has no ghat for - KumbhDigiTwin's alarms fire on
+    many entity types (SanitationBlock, ParkingZone, UtilityPlant, ...)
+    Trinetra has no opinion about, and that is an expected, silent no-op
+    here, not an error - see api.py's webhook handler."""
+    return _THINGSBOARD_ASSET_TO_GHAT_ID.get(asset_name)
+
+
+def write_back_monitoring_result(
+    ghat_id: str, brief: MonitoringBrief, config: ThingsBoardConfig | None = None
+) -> None:
+    """Posts Kshetra Netra's assessment back onto the ThingsBoard asset that
+    triggered it, as SERVER_SCOPE attributes - so an operator's ThingsBoard
+    dashboard can show a result without leaving ThingsBoard.
+
+    Best-effort and silent on failure BY DESIGN: this runs after the
+    MonitoringBrief already exists and (in the webhook path) after the
+    caller has already been told the request was accepted. A write-back
+    failure - including not being able to log in at all - must never look
+    like the monitoring itself failed, and must never raise into a
+    background task with no one watching for the exception. Never raises.
+    Callers that want to know about a postponed failure should wrap this
+    call themselves (see api.py's _run_alarm_triggered_monitoring, which
+    logs but does not re-raise).
+    """
+    asset_name = GHAT_ID_TO_THINGSBOARD_ASSET.get(ghat_id)
+    if asset_name is None:
+        return
+    try:
+        config, token = _connect(config)
+        asset_id = find_entity_id(config, token, "ASSET", asset_name)
+        if asset_id is None:
+            return
+        post_server_attributes(
+            config, token, "ASSET", asset_id,
+            {
+                "kshetraNetraStatus": brief.overall_status.value,
+                "kshetraNetraSummary": brief.summary,
+                "kshetraNetraRecommendedAction": brief.recommended_action,
+                "kshetraNetraCheckedAt": brief.generated_at.isoformat(),
+            },
+        )
+    except (ThingsBoardError, LiveSignalUnavailable):
+        return

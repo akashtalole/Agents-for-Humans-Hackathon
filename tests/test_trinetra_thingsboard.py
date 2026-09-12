@@ -258,3 +258,80 @@ def test_los_grade_to_risk_label_unknown_grade_returns_none():
     assert ls.los_grade_to_risk_label(None) is None
     assert ls.los_grade_to_risk_label("Z") is None
     assert ls.los_grade_to_risk_label("a") == "routine"  # case-insensitive
+
+
+# --- inbound: ThingsBoard entity name -> Trinetra ghat_id -------------------
+
+
+def test_ghat_id_from_thingsboard_asset_name_reverse_lookup():
+    assert ls.ghat_id_from_thingsboard_asset_name("Ramkund and near by Ghats") == "ramkund"
+    assert ls.ghat_id_from_thingsboard_asset_name("Some Random Sanitation Block") is None
+
+
+def test_write_back_monitoring_result_posts_expected_attributes(monkeypatch):
+    from datetime import datetime, timezone
+
+    from trinetra.models import MonitoringBrief, RiskLevel
+
+    monkeypatch.setattr("httpx.post", lambda *a, **k: _FakeResponse({"token": "tok"}))
+    posted = {}
+
+    def fake_get(url, params=None, headers=None, **kw):
+        if url.endswith("/api/tenant/assets"):
+            return _FakeResponse(
+                {"data": [{"name": "Ramkund and near by Ghats", "id": {"id": "asset-1"}}], "hasNext": False}
+            )
+        raise AssertionError(f"unexpected GET {url}")
+
+    def fake_post(url, json=None, headers=None, **kw):
+        if url.endswith("/api/auth/login"):
+            return _FakeResponse({"token": "tok"})
+        if url.endswith("/attributes/SERVER_SCOPE"):
+            posted["url"] = url
+            posted["body"] = json
+            return _FakeResponse({}, status_code=200)
+        raise AssertionError(f"unexpected POST {url}")
+
+    monkeypatch.setattr("httpx.get", fake_get)
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    brief = MonitoringBrief(
+        generated_at=datetime.now(timezone.utc), overall_status=RiskLevel.ELEVATED, findings=[],
+        checked_signals=["get_live_ghat_crowd_signal(ramkund)"], data_gaps=[],
+        recommended_action="Watch closely.", summary="Elevated density at Ramkund.",
+    )
+    ls.write_back_monitoring_result("ramkund", brief, config=_config())
+
+    assert posted["url"].endswith("/api/plugins/telemetry/ASSET/asset-1/attributes/SERVER_SCOPE")
+    assert posted["body"]["kshetraNetraStatus"] == "elevated"
+    assert posted["body"]["kshetraNetraSummary"] == "Elevated density at Ramkund."
+
+
+def test_write_back_monitoring_result_is_silent_on_unmapped_ghat():
+    """No ThingsBoard counterpart - nothing to write to, and this must not
+    raise (see the function's own docstring: best-effort, non-fatal)."""
+    from datetime import datetime, timezone
+
+    from trinetra.models import MonitoringBrief, RiskLevel
+
+    brief = MonitoringBrief(
+        generated_at=datetime.now(timezone.utc), overall_status=RiskLevel.ROUTINE, findings=[],
+        checked_signals=[], data_gaps=[], recommended_action="none", summary="ok",
+    )
+    ls.write_back_monitoring_result("kalaram_marg", brief, config=_config())  # must not raise
+
+
+def test_write_back_monitoring_result_is_silent_on_thingsboard_failure(monkeypatch):
+    """A live-fetch/post failure during write-back must never propagate -
+    see the function's docstring: this runs after the caller already got
+    its response."""
+    from datetime import datetime, timezone
+
+    from trinetra.models import MonitoringBrief, RiskLevel
+
+    monkeypatch.setattr("httpx.post", lambda *a, **k: _FakeResponse({}, status_code=500))
+    brief = MonitoringBrief(
+        generated_at=datetime.now(timezone.utc), overall_status=RiskLevel.ROUTINE, findings=[],
+        checked_signals=[], data_gaps=[], recommended_action="none", summary="ok",
+    )
+    ls.write_back_monitoring_result("ramkund", brief, config=_config())  # must not raise

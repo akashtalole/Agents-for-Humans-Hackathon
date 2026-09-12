@@ -127,6 +127,19 @@ def _get(config: ThingsBoardConfig, token: str | None, path: str, params: dict |
     return response.json()
 
 
+def _post(config: ThingsBoardConfig, token: str | None, path: str, body: dict) -> None:
+    response = get_with_retries(
+        lambda: httpx.post(
+            f"{config.base_url}{path}",
+            json=body,
+            headers=_auth_headers(config, token),
+            timeout=_TIMEOUT_SECONDS,
+        )
+    )
+    if response.status_code not in (200, 204):
+        raise ThingsBoardError(f"POST {path} -> HTTP {response.status_code}")
+
+
 def find_entity_id(
     config: ThingsBoardConfig, token: str | None, entity_type: str, name: str
 ) -> str | None:
@@ -197,3 +210,21 @@ def get_server_attributes(
         except (TypeError, ValueError):
             result[entry["key"]] = value
     return result
+
+
+def post_server_attributes(
+    config: ThingsBoardConfig, token: str | None, entity_type: str, entity_id: str, attributes: dict
+) -> None:
+    """Writes SERVER_SCOPE attributes onto an entity - used to post Kshetra
+    Netra's assessment back onto the ThingsBoard asset that triggered it, so
+    an operator's ThingsBoard dashboard can show it without leaving
+    ThingsBoard. This is the one place this repo writes TO ThingsBoard
+    rather than only reading from it - see live_signals.py's
+    write_back_monitoring_result for the caller, which treats a failure here
+    as non-fatal (best-effort - the monitoring brief itself is already
+    delivered by the time this runs)."""
+    _post(
+        config, token,
+        f"/api/plugins/telemetry/{entity_type}/{entity_id}/attributes/SERVER_SCOPE",
+        attributes,
+    )
