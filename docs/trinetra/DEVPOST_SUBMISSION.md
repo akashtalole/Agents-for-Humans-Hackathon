@@ -99,11 +99,20 @@ more useful than answer questions — whether they could help an authority
 **stress-test a crowd-control plan before committing to it**, and catch the
 failure modes that only appear when several hazards happen at once.
 
-One thing shaped the whole project: we found that **[KumbhDoot](https://www.kumbhdoot.org/)
-already exists** — a Maharashtra Government-backed pilgrim concierge from Project
-NANDA and Kumbhathon. Rather than pretend the space was empty, we read what it
-does and built the part we could not find anywhere: the simulator, and the
-reconciliation layer above it.
+One thing shaped the whole project: we found NTKMA's own **Kumbh Mela Plan**
+(the government's consolidated planning report) and read it before writing a
+line of the pitch. It named **[KumbhDoot](https://www.kumbhdoot.org/)** — a
+Maharashtra Government-backed pilgrim concierge from Project NANDA and
+Kumbhathon — and, more directly relevant to our flagship feature, it disclosed
+an MoU with **IIM Nagpur** since 2022 for dynamic crowd/traffic simulation and
+command-level decision support, plus a planned "Kumbh AI Stack" with its own
+AI Agents Layer. We are not filling a gap the government hasn't already funded
+someone to fill. What we built instead is narrower and falsifiable: a
+calibration discipline for one specific failure mode (narrow-lane crowd crush)
+that the plan document names as a hazard category but never analyzes by
+incident — the 2003 Kalaram Mandir stampede is not mentioned anywhere in it —
+plus the compound flood/crowd cross-check nothing in the plan indicates is
+being computed.
 
 ### What it does
 
